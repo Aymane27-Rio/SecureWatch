@@ -49,9 +49,7 @@ th{{background:#f5f5f5; text-align:left}}
 {table}
 </tbody>
 </table>
-</body></html>""".format(
-        now=now, table=table
-    )
+</body></html>""".format(now=now, table=table)
     with open(out_path, "w", encoding="utf-8") as f:
         f.write(content)
 

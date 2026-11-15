@@ -3,6 +3,7 @@ from pathlib import Path
 from .db import get_conn, init_db
 import datetime
 
+
 def ingest_reports_from_dir(logs_dir="/app/data/logs", db_path=None, dry_run=False):
     logs_dir = Path(logs_dir)
     conn = get_conn(db_path)
@@ -13,7 +14,7 @@ def ingest_reports_from_dir(logs_dir="/app/data/logs", db_path=None, dry_run=Fal
     inserted_events = 0
 
     for path in sorted(logs_dir.glob("events_*.json")):
-        report_id = path.name.replace("events_", "").replace(".json", "")
+        report_id = path.name.removeprefix("events_").removesuffix(".json")
         # skip if report already ingested
         cur.execute("SELECT 1 FROM reports WHERE report_id=? LIMIT 1", (report_id,))
         if cur.fetchone():
@@ -26,8 +27,14 @@ def ingest_reports_from_dir(logs_dir="/app/data/logs", db_path=None, dry_run=Fal
             print(f"Failed to read {path}: {e}")
             continue
 
+        if not isinstance(events, list) or any(
+            not isinstance(event, dict) for event in events
+        ):
+            print(f"Invalid report data in {path}: expected a list of event objects")
+            continue
+
         total = len(events)
-        now = datetime.datetime.utcnow().isoformat()
+        now = datetime.datetime.now(datetime.timezone.utc).isoformat()
         if not dry_run:
             cur.execute(
                 "INSERT INTO reports (report_id, filename, ts, total, created_at) VALUES (?, ?, ?, ?, ?)",

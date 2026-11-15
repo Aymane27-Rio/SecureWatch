@@ -1,13 +1,14 @@
 FROM python:3.11-slim
 WORKDIR /app
-COPY requirements.txt /app/requirements.txt
+COPY webapi/requirements.txt /app/requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
-COPY . /app/webapi
-COPY scripts /app/scripts
-RUN chmod +x /app/scripts/*.sh || true
+COPY webapi/ /app/webapi/
+COPY scripts/ /app/scripts/
+COPY modules/ /app/modules/
+COPY config/ /app/config/
+COPY python/ /app/python/
+RUN mkdir -p /app/data/logs /app/data/reports /app/data/state
 
-# expose
 ENV WEBAPI_DB_PATH=/app/data/state/securewatch.db
 EXPOSE 8000
-
 CMD ["uvicorn", "webapi.main:app", "--host", "0.0.0.0", "--port", "8000"]

@@ -4,7 +4,7 @@ VENV := .venv
 PIP := $(VENV)/bin/pip
 PYTHON := $(VENV)/bin/python
 
-.PHONY: help install-deps venv run report exporter enable-systemd clean
+.PHONY: help install-deps venv run report exporter test enable-systemd clean
 
 help:
 	@echo "Targets:"
@@ -13,6 +13,7 @@ help:
 	@echo "  run            - Run SecureWatch one-off scan"
 	@echo "  report         - Regenerate HTML report from latest JSON"
 	@echo "  exporter       - Run Prometheus exporter on :9109"
+	@echo "  test           - Run the deterministic unit test suite"
 	@echo "  enable-systemd - Install and enable systemd timer (hourly)"
 	@echo "  clean          - Remove venv and generated artifacts"
 
@@ -22,7 +23,7 @@ install-deps:
 venv:
 	test -d $(VENV) || $(PY) -m venv $(VENV)
 	$(PIP) install --upgrade pip
-	$(PIP) install -r python/requirements.txt
+	$(PIP) install -r python/requirements.txt -r webapi/requirements.txt
 
 run:
 	bash scripts/securewatch.sh
@@ -32,6 +33,9 @@ report:
 
 exporter:
 	$(PYTHON) python/exporters/securewatch_exporter.py
+
+test:
+	$(PYTHON) -m unittest discover -s tests -v
 
 enable-systemd:
 	@echo "Installing systemd units..."

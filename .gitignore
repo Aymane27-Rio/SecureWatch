@@ -21,7 +21,6 @@ frontend/yarn-debug.log*
 frontend/yarn-error.log*
 frontend/pnpm-lock.yaml
 frontend/yarn.lock
-frontend/package-lock.json
 
 # python 
 .pytest_cache/
