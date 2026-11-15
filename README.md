@@ -1,76 +1,98 @@
-# SecureWatch — Automated Linux Security & Cloud Monitoring Suite
+# SecureWatch
 
-SecureWatch is a modular toolkit to automate baseline security checks on Linux (Ubuntu/Kali), detect suspicious activity, and generate structured logs + human-readable reports. It also ships with a Prometheus exporter and a cloud (AWS) monitoring stub.
-
-> ⚠️ Run scripts that require privileged ops with `sudo`.
+SecureWatch is a modular Linux security monitoring toolkit. It runs local checks, parses authentication logs, creates JSON and HTML reports, and can display scan data in a web dashboard with Prometheus and Grafana.
 
 ## Features
-- Modular **Bash** checks: users, ports, firewall, updates, AIDE/rkhunter hooks, file integrity.
-- **Log parsing** (SSH brute force, sudo anomalies) → JSON events.
-- **HTML reports** + NDJSON/JSON logs saved under `data/`.
-- Optional **Prometheus exporter** for Grafana dashboards.
-- Optional **AWS security group audit** (overly permissive ingress).
 
-## Quickstart
+- Bash checks for accounts, listening ports, firewall state, package updates, AIDE, and rkhunter.
+- SSH and sudo anomaly parsing with structured JSON events.
+- HTML reports and a FastAPI service that stores reports and events in SQLite.
+- React dashboard, Prometheus exporter, and starter Grafana dashboard.
+- Optional AWS security group audit module.
 
-New update: You can now run SecureWatch in two ways:
+## Run with Docker Compose
 
-### Native (Ubuntu/Kali)
+Prerequisites: Docker Engine and the Docker Compose plugin.
 
 ```bash
-# 0) Unzip and enter
-unzip securewatch-skeleton.zip && cd securewatch
+mkdir -p data
+printf 'WEBAPI_API_KEY=%s\n' "$(openssl rand -hex 32)" > .env
+docker compose up --build -d
+```
 
-# 1) Install OS dependencies
-make install-deps
+The stack binds to localhost by default:
 
-# 2) Create Python venv + deps (for reporting/exporter/cloud)
+- Dashboard: <http://127.0.0.1:3000>
+- API: <http://127.0.0.1:8000>
+- Prometheus: <http://127.0.0.1:9090>
+- Grafana: <http://127.0.0.1:3001>
+- Exporter: <http://127.0.0.1:9109/metrics>
+
+Run a scan from the repository root with `make run`. Reports and logs appear under `data/`; the API imports new event files automatically. A few checks use `sudo` for full visibility. To expose the stack on another interface, set `SECUREWATCH_BIND_ADDRESS` in `.env` before starting Compose.
+
+Stop the stack with `docker compose down`. The SQLite database and reports remain in `data/`.
+
+## Run locally without Docker
+
+Python 3.11+ is required. Create the environment and install dependencies once:
+
+```bash
 make venv
-
-# 3) Run a one-off security sweep (writes logs + report under data/)
 make run
-
-# 4) Start Prometheus exporter (port :9109) in foreground
 make exporter
-
-# (Optional) Install systemd timer for hourly scans
-sudo make enable-systemd   # edits may be required to point to your absolute path
 ```
 
-### Or Dockerized (more recommended for portability)
+To run the API locally, install its dependencies and start it from the repository root:
 
 ```bash
-# 0) Build the image
-docker build -t securewatch .
-
-# 1) Run a one-off security sweep
-docker run --rm -v $(pwd)/data:/app/data securewatch
-
-# Reports will be available under ./data/reports/
-
-# (Optional) Run with docker-compose
-docker compose up
-
+.venv/bin/pip install -r webapi/requirements.txt
+WEBAPI_DB_PATH="$PWD/data/state/securewatch.db" \
+WEBAPI_LOGS_DIR="$PWD/data/logs" \
+WEBAPI_API_KEY="$(openssl rand -hex 32)" \
+.venv/bin/uvicorn webapi.main:app --host 127.0.0.1 --port 8000
 ```
 
-## Layout
-- `scripts/securewatch.sh` — Orchestrator (runs modules, aggregates JSON, renders report, alerts).
-- `modules/*` — Individual checks.
-- `python/log_parser.py` — Parses system logs for anomalies.
-- `python/report_generator.py` — Renders HTML report.
-- `python/exporters/securewatch_exporter.py` — Prometheus metrics exporter.
-- `python/cloud_monitor/aws_monitor.py` — AWS security group audit (stub).
-- `config/securewatch.conf` — Tuning (thresholds, paths, email/slack settings).
-- `data/` — Logs, reports, state.
-- `systemd/*.service|*.timer` — Units for scheduled runs.
-- `dashboards/grafana/*.json` — Starter dashboard.
+For dashboard development, use Node.js 20 or newer:
 
-## Security & Privacy
-- Designed for local ops; **does not exfiltrate** data unless you enable alerts/webhooks.
-- Logs may contain IPs/usernames. Handle and share responsibly.
-- Use at your own risk; review code and tailor thresholds to your environment.
+```bash
+cd frontend
+npm ci
+npm run dev
+```
 
-## Cloud Notes
-- AWS checks require credentials via environment or `~/.aws/credentials`.
-- Minimal sample detects `0.0.0.0/0` on sensitive ports (22/3389); extend as needed.
+The Vite development server runs at <http://127.0.0.1:5173> and proxies API requests to port 8000.
 
+## Tests and CI
+
+Create the local environment once, then run the deterministic unit tests whenever you change the code:
+
+```bash
+make venv
+make test
+```
+
+These tests use temporary logs, reports, and databases. They do not run a scan against the host. The GitHub Actions workflow also checks Python lint and formatting, validates the Compose configuration, and builds the dashboard.
+
+To run the actual host scan manually, use `make run`; it reads system state and writes generated files under `data/`.
+
+## Releases
+
+Release versions use semantic version tags. Use a suffix for pre-releases, for example `v0.2.0-alpha.1` or `v0.2.0-rc.1`; use `v0.2.0` for a stable release.
+
+Pushing a `v*` tag runs the release workflow. It validates the version and creates a GitHub draft with generated release notes. Tags containing a suffix are marked as pre-releases. Review and publish the draft from the GitHub Releases page.
+
+## Project layout
+
+- `scripts/securewatch.sh` — runs checks, aggregates events, and generates reports.
+- `modules/` — individual Linux checks.
+- `python/log_parser.py` — parses authentication logs.
+- `python/report_generator.py` — creates the HTML report.
+- `python/exporters/securewatch_exporter.py` — publishes Prometheus metrics.
+- `webapi/` — FastAPI service, SQLite helpers, and report ingestion.
+- `frontend/` — React dashboard and Nginx configuration.
+- `dashboards/grafana/` — starter Grafana dashboard.
+- `systemd/` — optional scheduled scan and exporter units.
+
+## Security notes
+
+The Compose stack binds to localhost by default. API write operations require `WEBAPI_API_KEY`; keep `.env` private. Read endpoints do not require a key, so add an authenticated reverse proxy before exposing the stack beyond localhost. Reports can contain usernames and IP addresses, so handle and share them carefully. Review checks and thresholds for your systems before relying on the results.

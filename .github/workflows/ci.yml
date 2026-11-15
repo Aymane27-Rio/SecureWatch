@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, feat-web ]
   pull_request:
     branches: [ main ]
 
@@ -18,21 +18,45 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Install system deps
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y aide rkhunter iproute2 iptables
-
       - name: Install Python deps
         run: |
           python -m pip install --upgrade pip
-          pip install -r python/requirements.txt
+          pip install -r python/requirements.txt -r python/dev-requirements.txt -r webapi/requirements.txt
 
       - name: Lint (flake8)
-        run: flake8 python/ scripts/
+        run: flake8 python/ scripts/ webapi/ tests/
 
       - name: Format check (black)
-        run: black --check python/ scripts/
+        run: black --check python/ scripts/ webapi/ tests/
 
       - name: Run tests
-        run: pytest -q
+        run: python -m unittest discover -s tests -v
+
+      - name: Compile Python modules
+        run: python -m compileall -q python webapi
+
+      - name: Validate Compose config
+        run: docker compose config --quiet
+
+      - name: Build Compose images
+        run: docker compose build exporter webapi frontend
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Build dashboard
+        run: npm run build
