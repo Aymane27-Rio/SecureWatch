@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+umask 077
 
 HERE="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 ROOT="$( dirname "$HERE" )"
@@ -34,7 +35,7 @@ if command -v python3 >/dev/null 2>&1; then
 fi
 
 # aggregate → stable JSON (array)
-out_json="$ROOT/data/logs/events_${timestamp}.json"
+out_json="$LOG_DIR/events_${timestamp}.json"
 if command -v jq >/dev/null 2>&1; then
   jq -s '[.[]]' "$events_file" > "$out_json"
 else
@@ -42,10 +43,17 @@ else
   echo "[" > "$out_json"; paste -sd, "$events_file" >> "$out_json"; echo "]" >> "$out_json"
 fi
 echo "[*] Wrote events: $out_json"
+if [[ "$EUID" -eq 0 && -f "$out_json" ]]; then
+  chown --reference="$LOG_DIR" -- "$out_json"
+fi
 
 # render HTML report
 if command -v python3 >/dev/null 2>&1; then
-  python3 "$ROOT/python/report_generator.py" --input "$out_json" --out "$ROOT/data/reports/report_${timestamp}.html" || true
+  report_file="$REPORT_DIR/report_${timestamp}.html"
+  python3 "$ROOT/python/report_generator.py" --input "$out_json" --out "$report_file" || true
+  if [[ "$EUID" -eq 0 && -f "$report_file" ]]; then
+    chown --reference="$REPORT_DIR" -- "$report_file"
+  fi
 fi
 
 # Alert on critical findings (severity >= 3)

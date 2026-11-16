@@ -52,6 +52,7 @@ th{{background:#f5f5f5; text-align:left}}
 </body></html>""".format(now=now, table=table)
     with open(out_path, "w", encoding="utf-8") as f:
         f.write(content)
+    os.chmod(out_path, 0o600)
 
 
 def main():

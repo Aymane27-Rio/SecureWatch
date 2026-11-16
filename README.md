@@ -16,6 +16,7 @@ Prerequisites: Docker Engine and the Docker Compose plugin.
 
 ```bash
 install -d -m 700 data/logs data/reports data/state
+chmod 700 data data/logs data/reports data/state
 if [ ! -f .env ]; then
   (
     umask 077
@@ -27,7 +28,16 @@ chmod 600 .env
 docker compose up --build -d
 ```
 
-If `.env` already exists from an earlier setup, add `SECUREWATCH_UID`, `SECUREWATCH_GID`, and `GRAFANA_ADMIN_PASSWORD` once. Use the values from `id -u` and `id -g` for the UID/GID, and generate the Grafana password with `openssl rand -hex 32`. If an earlier container created root-owned files under `data/logs` or `data/state`, give them back to your account once with `sudo chown -R "$(id -u):$(id -g)" data/logs data/state` before starting the stack. Grafana reads this password when its data volume is first initialized; an existing Grafana volume keeps its current login.
+If `.env` already exists from an earlier setup, add `SECUREWATCH_UID`, `SECUREWATCH_GID`, and `GRAFANA_ADMIN_PASSWORD` once. Use the values from `id -u` and `id -g` for the UID/GID, and generate the Grafana password with `openssl rand -hex 32`. If earlier scans created root-owned files, restore ownership to your account and restrict the generated data with:
+
+```bash
+sudo chown -R "$(id -u):$(id -g)" data/logs data/reports data/state
+chmod 700 data data/logs data/reports data/state
+find data/logs data/reports data/state -type d -exec chmod 700 {} +
+find data/logs data/reports data/state -type f -exec chmod 600 {} +
+```
+
+Grafana reads the configured password when its data volume is first initialized; an existing Grafana volume keeps its current login.
 
 Host-published services bind only to loopback:
 

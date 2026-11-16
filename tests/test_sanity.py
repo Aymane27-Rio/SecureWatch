@@ -6,6 +6,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from webapi.db import get_conn
 from webapi.ingest import ingest_reports_from_dir
@@ -13,6 +14,7 @@ from webapi.ingest import ingest_reports_from_dir
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "python"))
 
+import log_parser  # noqa: E402
 from log_parser import parse_failed_ssh, parse_sudo_anomalies  # noqa: E402
 from report_generator import render_html, severity_tag  # noqa: E402
 
@@ -25,6 +27,25 @@ except ModuleNotFoundError as error:
 
 
 class LogParserTests(unittest.TestCase):
+    def test_cli_writes_private_anomaly_file(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            auth_log = Path(temp_dir) / "auth.log"
+            auth_log.write_text(
+                "Failed password for root from 192.0.2.8 port 22 ssh2\n",
+                encoding="utf-8",
+            )
+            output = Path(temp_dir) / "anomalies.ndjson"
+            with patch.object(log_parser, "AUTH_LOGS", [str(auth_log)]):
+                with patch.object(
+                    sys,
+                    "argv",
+                    ["log_parser.py", "--threshold", "1", "--out", str(output)],
+                ):
+                    log_parser.main()
+            mode = output.stat().st_mode & 0o777
+
+        self.assertEqual(mode, 0o600)
+
     def test_failed_ssh_events_respect_threshold(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             log_path = Path(temp_dir) / "auth.log"
@@ -74,10 +95,12 @@ class ReportGeneratorTests(unittest.TestCase):
                 str(output_path),
             )
             report = output_path.read_text(encoding="utf-8")
+            report_mode = output_path.stat().st_mode & 0o777
 
         self.assertIn("&lt;script&gt;", report)
         self.assertIn("&lt;img src=x&gt;", report)
         self.assertNotIn("<script>", report)
+        self.assertEqual(report_mode, 0o600)
 
     def test_known_severity_names(self):
         self.assertEqual(severity_tag(0), "info")
@@ -85,6 +108,17 @@ class ReportGeneratorTests(unittest.TestCase):
 
 
 class ReportIngestionTests(unittest.TestCase):
+    def test_created_database_has_owner_only_permissions(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            db_path = Path(temp_dir) / "state" / "securewatch.db"
+            conn = get_conn(db_path)
+            conn.close()
+            mode = db_path.stat().st_mode & 0o777
+            parent_mode = db_path.parent.stat().st_mode & 0o777
+
+        self.assertEqual(mode, 0o600)
+        self.assertEqual(parent_mode, 0o700)
+
     def test_reports_and_events_are_ingested_once(self):
         event = {
             "ts": "2026-01-01T00:00:00Z",
@@ -137,6 +171,91 @@ class ReportIngestionTests(unittest.TestCase):
 
 
 class ShellScriptTests(unittest.TestCase):
+    def test_scan_writes_private_artifacts_to_configured_directories(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir) / "project"
+            for directory in ("config", "scripts", "modules", "python", "bin"):
+                (root / directory).mkdir(parents=True, exist_ok=True)
+
+            script = root / "scripts" / "securewatch.sh"
+            script.write_text(
+                (ROOT / "scripts" / "securewatch.sh").read_text(encoding="utf-8"),
+                encoding="utf-8",
+            )
+            script.chmod(0o755)
+            (root / "config" / "securewatch.conf").write_text(
+                'BASE_DIR="${BASE_DIR:-$(pwd)}"\n'
+                'LOG_DIR="${LOG_DIR:-$BASE_DIR/data/logs}"\n'
+                'REPORT_DIR="${REPORT_DIR:-$BASE_DIR/data/reports}"\n'
+                'STATE_DIR="${STATE_DIR:-$BASE_DIR/data/state}"\n'
+                'SSH_FAILED_THRESHOLD="${SSH_FAILED_THRESHOLD:-5}"\n',
+                encoding="utf-8",
+            )
+
+            module_names = (
+                "audit_users.sh",
+                "check_ports.sh",
+                "firewall_status.sh",
+                "check_updates.sh",
+                "rkhunter_run.sh",
+                "aide_check.sh",
+                "file_integrity.sh",
+            )
+            for module_name in module_names:
+                (root / "modules" / module_name).write_text(
+                    'printf \'{"severity":0,"category":"test"}\\n\'\n',
+                    encoding="utf-8",
+                )
+
+            (root / "python" / "log_parser.py").write_text(
+                "import sys\n"
+                "out = sys.argv[sys.argv.index('--out') + 1]\n"
+                "open(out, 'w').close()\n",
+                encoding="utf-8",
+            )
+            (root / "python" / "report_generator.py").write_text(
+                "import sys\n"
+                "out = sys.argv[sys.argv.index('--out') + 1]\n"
+                "with open(out, 'w') as report: report.write('private report')\n",
+                encoding="utf-8",
+            )
+            (root / "bin" / "jq").write_text(
+                "#!/usr/bin/env python3\n"
+                "import json, sys\n"
+                "if sys.argv[1] == '-s':\n"
+                "    with open(sys.argv[-1], encoding='utf-8') as events:\n"
+                "        json.dump([json.loads(line) for line in events if line.strip()], sys.stdout)\n"
+                "else:\n"
+                "    print(0)\n",
+                encoding="utf-8",
+            )
+            (root / "bin" / "jq").chmod(0o755)
+
+            logs_dir = root / "custom" / "logs"
+            reports_dir = root / "custom" / "reports"
+            state_dir = root / "custom" / "state"
+            env = os.environ.copy()
+            env.update(
+                {
+                    "BASE_DIR": str(root),
+                    "LOG_DIR": str(logs_dir),
+                    "REPORT_DIR": str(reports_dir),
+                    "STATE_DIR": str(state_dir),
+                    "PATH": f"{root / 'bin'}:{env['PATH']}",
+                }
+            )
+            subprocess.run(["bash", str(script)], cwd=root, env=env, check=True)
+
+            event_files = list(logs_dir.glob("events_*.json"))
+            report_files = list(reports_dir.glob("report_*.html"))
+            self.assertEqual(len(event_files), 1)
+            self.assertEqual(len(report_files), 1)
+            self.assertEqual(event_files[0].stat().st_mode & 0o777, 0o600)
+            self.assertEqual(report_files[0].stat().st_mode & 0o777, 0o600)
+            self.assertEqual(logs_dir.stat().st_mode & 0o777, 0o700)
+            self.assertEqual(reports_dir.stat().st_mode & 0o777, 0o700)
+            self.assertFalse((root / "data").exists())
+
     def test_orchestrator_has_valid_bash_syntax(self):
         subprocess.run(
             ["bash", "-n", str(ROOT / "scripts" / "securewatch.sh")], check=True

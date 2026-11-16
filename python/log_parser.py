@@ -79,6 +79,7 @@ def main():
         with open(args.out, "w") as f:
             for e in events:
                 f.write(json.dumps(e) + "\n")
+        os.chmod(args.out, 0o600)
 
 
 if __name__ == "__main__":

@@ -204,6 +204,7 @@ def periodic_ingest():
 
 @app.on_event("startup")
 def startup_event():
+    os.umask(0o077)
     conn = get_conn(DB_PATH)
     try:
         init_db(conn)
