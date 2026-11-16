@@ -455,6 +455,25 @@ class ContainerImagePolicyTests(unittest.TestCase):
                 self.assertIn("USER 1000:1000", dockerfile.read_text(encoding="utf-8"))
 
 
+class WorkflowSecurityTests(unittest.TestCase):
+    def test_github_actions_are_pinned_to_full_commit_shas(self):
+        workflow_paths = sorted((ROOT / ".github" / "workflows").glob("*.yml"))
+        action_refs = []
+        for workflow_path in workflow_paths:
+            action_refs.extend(
+                re.findall(
+                    r"^\s*uses:\s+[^@\s]+@([^\s#]+)(?:\s+#\s*(v[^\s]+))?",
+                    workflow_path.read_text(encoding="utf-8"),
+                    flags=re.MULTILINE,
+                )
+            )
+
+        self.assertTrue(action_refs)
+        for commit_sha, release_tag in action_refs:
+            self.assertRegex(commit_sha, r"^[0-9a-f]{40}$")
+            self.assertRegex(release_tag, r"^v\d+\.\d+\.\d+$")
+
+
 @unittest.skipIf(exporter is None, "prometheus-client is installed in CI")
 class ExporterTests(unittest.TestCase):
     def test_bad_and_missing_reports_reset_exported_metrics(self):
