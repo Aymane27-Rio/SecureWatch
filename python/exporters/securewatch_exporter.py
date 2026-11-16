@@ -79,8 +79,8 @@ def tick():
     sev_counts = {}
     cat_counts = {}
     for event in events:
-        sev = str(event[3])
-        category = event[2] or "unknown"
+        sev = str(event["severity"])
+        category = event.get("category") or "unknown"
         cat = category if category in ALLOWED_CATEGORIES else "other"
         sev_counts[sev] = sev_counts.get(sev, 0) + 1
         cat_counts[cat] = cat_counts.get(cat, 0) + 1

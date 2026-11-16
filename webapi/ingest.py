@@ -1,4 +1,5 @@
 import datetime
+import json
 import sqlite3
 from pathlib import Path
 
@@ -50,7 +51,18 @@ def ingest_reports_from_dir(logs_dir="/app/data/logs", db_path=None, dry_run=Fal
                             "INSERT INTO events "
                             "(report_id, ts, host, category, severity, summary, data) "
                             "VALUES (?, ?, ?, ?, ?, ?, ?)",
-                            [(report_id, *event) for event in normalized_events],
+                            [
+                                (
+                                    report_id,
+                                    event.get("ts"),
+                                    event.get("host"),
+                                    event.get("category"),
+                                    event["severity"],
+                                    event.get("summary"),
+                                    json.dumps(event["data"], allow_nan=False),
+                                )
+                                for event in normalized_events
+                            ],
                         )
                 except sqlite3.Error as error:
                     print(f"Failed to store report {path.name}: {error}")

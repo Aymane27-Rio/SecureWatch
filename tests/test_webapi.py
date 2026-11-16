@@ -241,6 +241,43 @@ class LegacyApiSecurityTests(unittest.TestCase):
         self.assertEqual(invalid_shape[0], 500)
         self.assertEqual(invalid_report_id[0], 400)
 
+    def test_alternate_backend_reads_collision_safe_scan_report_ids(self):
+        original_api_key = legacy_api.API_KEY
+        original_log_dir = legacy_api.LOG_DIR
+        report_id = "20260103_000000.Ab12Cd"
+        event = {
+            "ts": "2026-01-03T00:00:00Z",
+            "host": "host",
+            "category": "auth",
+            "severity": 2,
+            "summary": "Failed login",
+            "data": {"count": 1},
+        }
+        with tempfile.TemporaryDirectory() as temp_dir:
+            logs_dir = Path(temp_dir) / "logs"
+            logs_dir.mkdir()
+            (logs_dir / f"events_{report_id}.json").write_text(
+                json.dumps([event]), encoding="utf-8"
+            )
+            legacy_api.API_KEY = "test-secret"
+            legacy_api.LOG_DIR = logs_dir
+            try:
+                response = request_api(
+                    f"/api/reports/{report_id}",
+                    "test-secret",
+                    target_app=legacy_api.app,
+                )
+                reports = request_api(
+                    "/api/reports", "test-secret", target_app=legacy_api.app
+                )
+            finally:
+                legacy_api.API_KEY = original_api_key
+                legacy_api.LOG_DIR = original_log_dir
+
+        self.assertEqual(response, (200, [event]))
+        self.assertEqual(reports[0], 200)
+        self.assertEqual(reports[1][0]["id"], report_id)
+
     def test_alternate_backend_startup_rejects_invalid_api_key(self):
         original_api_key = legacy_api.API_KEY
         try:

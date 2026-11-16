@@ -64,15 +64,9 @@ def validate_events(events, max_events=MAX_REPORT_EVENTS):
         if not 0 <= severity <= 4:
             raise ValueError("event severity must be an integer from 0 to 4")
 
-        data_json = json.dumps(event.get("data", {}), allow_nan=False)
-        normalized.append(
-            (
-                event.get("ts"),
-                event.get("host"),
-                event.get("category"),
-                severity,
-                event.get("summary"),
-                data_json,
-            )
-        )
+        normalized_event = dict(event)
+        normalized_event["severity"] = severity
+        normalized_event["data"] = event.get("data", {})
+        json.dumps(normalized_event["data"], allow_nan=False)
+        normalized.append(normalized_event)
     return normalized

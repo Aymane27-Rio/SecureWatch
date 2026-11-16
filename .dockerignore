@@ -9,7 +9,6 @@ __pycache__
 .idea
 .vscode
 data
-backend
 frontend/node_modules
 frontend/dist
 frontend/.vite

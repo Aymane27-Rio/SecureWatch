@@ -3,6 +3,7 @@ WORKDIR /app
 COPY backend/requirements.txt /app/requirements.txt
 RUN python -m pip install --no-cache-dir -r /app/requirements.txt
 COPY backend/app/ /app/app/
+COPY python/report_io.py /app/python/report_io.py
 RUN mkdir -p /app/data/logs /app/data/reports
 ENV PYTHONDONTWRITEBYTECODE=1
 EXPOSE 8000

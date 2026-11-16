@@ -1,5 +1,4 @@
 import hmac
-import json
 import os
 import re
 from pathlib import Path
@@ -7,6 +6,7 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Security
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import APIKeyHeader
+from python.report_io import MAX_REPORT_BYTES, read_report, validate_events
 
 app = FastAPI(title="SecureWatch API")
 
@@ -53,26 +53,19 @@ if cors_origins:
 
 
 def latest_reports():
-    logs_dir = LOG_DIR.resolve()
     reports = []
     for path in LOG_DIR.glob("events_*.json"):
-        resolved_path = path.resolve()
-        if resolved_path.parent == logs_dir and resolved_path.is_file():
-            reports.append(resolved_path)
+        if path.is_symlink() or not path.is_file():
+            continue
+        reports.append(path)
     return sorted(reports)
 
 
 def load_events(path: Path) -> list[dict]:
     try:
-        with path.open("r", encoding="utf-8") as report_file:
-            events = json.load(report_file)
-    except (OSError, json.JSONDecodeError):
+        return validate_events(read_report(path, max_bytes=MAX_REPORT_BYTES))
+    except (OSError, RuntimeError, UnicodeDecodeError, ValueError):
         return []
-    if not isinstance(events, list) or any(
-        not isinstance(event, dict) for event in events
-    ):
-        return []
-    return events
 
 
 @protected_api.get("/api/metrics")
@@ -130,24 +123,19 @@ def list_reports():
 
 @protected_api.get("/api/reports/{report_id}")
 def get_report(report_id: str):
-    if not re.fullmatch(r"\d{8}_\d{6}", report_id):
+    if not re.fullmatch(r"\d{8}_\d{6}(?:\.[A-Za-z0-9]{6})?", report_id):
         raise HTTPException(status_code=400, detail="invalid report id")
 
-    path = (LOG_DIR / f"events_{report_id}.json").resolve()
-    if path.parent != LOG_DIR.resolve() or not path.is_file():
+    path = LOG_DIR / f"events_{report_id}.json"
+    if path.is_symlink() or not path.is_file():
         raise HTTPException(status_code=404, detail="report not found")
 
     try:
-        with path.open("r", encoding="utf-8") as report_file:
-            events = json.load(report_file)
-    except (OSError, json.JSONDecodeError) as error:
+        events = validate_events(read_report(path, max_bytes=MAX_REPORT_BYTES))
+    except (OSError, RuntimeError, UnicodeDecodeError, ValueError) as error:
         raise HTTPException(
             status_code=500, detail="report could not be read"
         ) from error
-    if not isinstance(events, list) or any(
-        not isinstance(event, dict) for event in events
-    ):
-        raise HTTPException(status_code=500, detail="report has an invalid shape")
     return events
 
 
