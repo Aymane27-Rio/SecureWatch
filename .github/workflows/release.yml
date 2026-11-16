@@ -11,6 +11,8 @@ permissions:
 jobs:
   verify:
     runs-on: ubuntu-latest
+    env:
+      WEBAPI_API_KEY: "0000000000000000000000000000000000000000000000000000000000000000"
     steps:
       - name: Checkout tagged source
         uses: actions/checkout@v4
@@ -24,19 +26,25 @@ jobs:
         run: pip install -r python/requirements.txt -r python/dev-requirements.txt -r webapi/requirements.txt
 
       - name: Lint Python
-        run: flake8 python/ scripts/ webapi/ tests/
+        run: flake8 python/ scripts/ webapi/ backend/ tests/
 
       - name: Check Python formatting
-        run: black --check python/ scripts/ webapi/ tests/
+        run: black --check python/ scripts/ webapi/ backend/ tests/
 
       - name: Run Python tests
         run: python -m unittest discover -s tests -v
+
+      - name: Compile Python modules
+        run: python -m compileall -q python webapi backend
 
       - name: Validate Compose config
         run: docker compose config --quiet
 
       - name: Build Compose images
         run: docker compose build exporter webapi frontend
+
+      - name: Build alternate API image
+        run: docker build -f backend/Dockerfile -t securewatch-backend .
 
       - name: Set up Node.js
         uses: actions/setup-node@v4

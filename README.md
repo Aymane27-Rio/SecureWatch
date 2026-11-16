@@ -25,7 +25,7 @@ docker compose up --build -d
 Host-published services bind only to loopback:
 
 - Dashboard: <http://127.0.0.1:3000>
-- API: <http://127.0.0.1:8000>
+- API: <http://127.0.0.1:8000> (data routes require `X-API-Key`; `/hello` is public)
 - Prometheus: <http://127.0.0.1:9090>
 - Grafana: <http://127.0.0.1:3001>
 - Exporter metrics are available to Prometheus on the internal Compose network.
@@ -46,11 +46,13 @@ make exporter
 
 To run the API locally, install its dependencies and start it from the repository root:
 
+Use the same owner-only `.env` setup shown in the Docker Compose section first.
+
 ```bash
 .venv/bin/pip install -r webapi/requirements.txt
 WEBAPI_DB_PATH="$PWD/data/state/securewatch.db" \
 WEBAPI_LOGS_DIR="$PWD/data/logs" \
-WEBAPI_API_KEY="$(openssl rand -hex 32)" \
+WEBAPI_API_KEY="$(sed -n 's/^WEBAPI_API_KEY=//p' .env)" \
 .venv/bin/uvicorn webapi.main:app --host 127.0.0.1 --port 8000
 ```
 
@@ -59,10 +61,10 @@ For dashboard development, use Node.js 20 or newer:
 ```bash
 cd frontend
 npm ci
-npm run dev
+WEBAPI_API_KEY="$(sed -n 's/^WEBAPI_API_KEY=//p' ../.env)" npm run dev
 ```
 
-The Vite development server runs at <http://127.0.0.1:5173> and proxies API requests to port 8000.
+The Vite development server runs at <http://127.0.0.1:5173> and adds the API key server-side when proxying requests to port 8000; the key is not included in browser JavaScript.
 
 ## Tests and CI
 
@@ -91,10 +93,11 @@ Pushing a `v*` tag runs the release workflow. It validates the version and creat
 - `python/report_generator.py` — creates the HTML report.
 - `python/exporters/securewatch_exporter.py` — publishes Prometheus metrics.
 - `webapi/` — FastAPI service, SQLite helpers, and report ingestion.
+- `backend/` — alternate file-backed API; it uses the same API key and has CORS disabled unless explicit origins are configured.
 - `frontend/` — React dashboard and Nginx configuration.
 - `dashboards/grafana/` — starter Grafana dashboard.
 - `systemd/` — optional scheduled scan and exporter units.
 
 ## Security notes
 
-The Compose stack binds its host ports to loopback. API write operations require `WEBAPI_API_KEY`; the setup command creates `.env` with owner-only permissions, and the file is ignored by Git. Read endpoints do not require a key and can return usernames, IP addresses, and other host details. For remote access, put the dashboard behind a TLS-enabled, authenticated reverse proxy and keep the API and monitoring ports private. Review checks and thresholds for your systems before relying on the results.
+The Compose stack binds its host ports to loopback. Both API implementations require `WEBAPI_API_KEY` for data routes; the setup command creates a 64-character key in an owner-only `.env`, and the file is ignored by Git. The dashboard proxy adds the key server-side so it is not shipped to the browser. The alternate `backend/` service does not enable CORS unless you set a specific comma-separated `SECUREWATCH_CORS_ORIGINS` allowlist. Reports can contain usernames, IP addresses, and other host details. For remote access, put the dashboard behind a TLS-enabled, authenticated reverse proxy and keep the API and monitoring ports private. Review checks and thresholds for your systems before relying on the results.

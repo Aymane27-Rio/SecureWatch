@@ -7,6 +7,8 @@ services:
     build: ./frontend
     ports:
       - "127.0.0.1:3000:80"
+    environment:
+      WEBAPI_API_KEY: ${WEBAPI_API_KEY:?Create .env using the setup command in README.md}
     depends_on:
       - webapi
 
@@ -39,7 +41,7 @@ services:
     environment:
       WEBAPI_DB_PATH: /app/data/state/securewatch.db
       WEBAPI_LOGS_DIR: /app/data/logs
-      WEBAPI_API_KEY: ${WEBAPI_API_KEY:-}
+      WEBAPI_API_KEY: ${WEBAPI_API_KEY:?Create .env using the setup command in README.md}
       WEBAPI_ALLOW_SCAN: "0"
       WEBAPI_INGEST_INTERVAL: "60"
 

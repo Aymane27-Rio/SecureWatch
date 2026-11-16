@@ -1,4 +1,5 @@
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -132,6 +133,25 @@ class ShellScriptTests(unittest.TestCase):
         subprocess.run(
             ["bash", "-n", str(ROOT / "scripts" / "securewatch.sh")], check=True
         )
+
+    def test_frontend_rejects_unsafe_or_short_api_keys(self):
+        script = ROOT / "frontend" / "validate-api-key.sh"
+        valid_env = os.environ.copy()
+        valid_env["WEBAPI_API_KEY"] = "a" * 64
+        subprocess.run(["sh", str(script)], env=valid_env, check=True)
+
+        for api_key in ("short", "a" * 63, "a" * 63 + ";"):
+            with self.subTest(api_key=api_key):
+                invalid_env = os.environ.copy()
+                invalid_env["WEBAPI_API_KEY"] = api_key
+                result = subprocess.run(
+                    ["sh", str(script)],
+                    env=invalid_env,
+                    capture_output=True,
+                    check=False,
+                    text=True,
+                )
+                self.assertNotEqual(result.returncode, 0)
 
 
 if __name__ == "__main__":
