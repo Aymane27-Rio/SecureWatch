@@ -31,7 +31,10 @@ def read_report(path, max_bytes=MAX_REPORT_BYTES):
         if len(payload) > max_bytes:
             raise ValueError("report exceeds WEBAPI_MAX_REPORT_BYTES")
 
-    return json.loads(payload.decode("utf-8"))
+    try:
+        return json.loads(payload.decode("utf-8"))
+    except RecursionError as error:
+        raise ValueError("report JSON nesting is too deep") from error
 
 
 def validate_events(events, max_events=MAX_REPORT_EVENTS):

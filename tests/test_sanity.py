@@ -204,6 +204,25 @@ class ReportIngestionTests(unittest.TestCase):
         self.assertEqual(report_ids, ["20260101_000001"])
         self.assertEqual(stored_events, 1)
 
+    def test_deeply_nested_report_is_skipped_without_stopping_later_reports(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            logs_dir = root / "logs"
+            logs_dir.mkdir()
+            deeply_nested = "[" * 1100 + "0" + "]" * 1100
+            (logs_dir / "events_20260101_000000.json").write_text(
+                deeply_nested, encoding="utf-8"
+            )
+            (logs_dir / "events_20260101_000001.json").write_text(
+                '[{"severity":2,"summary":"valid report"}]', encoding="utf-8"
+            )
+
+            result = ingest_reports_from_dir(
+                logs_dir, root / "state" / "securewatch.db"
+            )
+
+        self.assertEqual(result, {"reports": 1, "events": 1})
+
     def test_concurrent_ingestion_does_not_duplicate_reports(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
