@@ -47,9 +47,6 @@ jobs:
       - name: Build Compose images
         run: docker compose --profile alternate-api build exporter webapi frontend alternate-api
 
-      - name: Validate dashboard NGINX configuration
-        run: docker compose run --rm --no-deps frontend nginx -t
-
       - name: Set up Node.js
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
@@ -74,6 +71,9 @@ jobs:
 
       - name: Prepare private test data
         run: install -d -m 700 data/logs data/reports data/state
+
+      - name: Validate dashboard NGINX configuration
+        run: docker compose run --rm frontend nginx -t
 
       - name: Start Compose stack
         run: docker compose --profile alternate-api up -d --wait --wait-timeout 180

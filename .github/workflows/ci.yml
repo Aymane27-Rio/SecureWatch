@@ -50,9 +50,6 @@ jobs:
       - name: Build Compose images
         run: docker compose --profile alternate-api build exporter webapi frontend alternate-api
 
-      - name: Validate dashboard NGINX configuration
-        run: docker compose run --rm --no-deps frontend nginx -t
-
       - name: Set bind-mount identity
         run: |
           echo "SECUREWATCH_UID=$(id -u)" >> "$GITHUB_ENV"
@@ -60,6 +57,9 @@ jobs:
 
       - name: Prepare private test data
         run: install -d -m 700 data/logs data/reports data/state
+
+      - name: Validate dashboard NGINX configuration
+        run: docker compose run --rm frontend nginx -t
 
       - name: Start Compose stack
         run: docker compose --profile alternate-api up -d --wait --wait-timeout 180
