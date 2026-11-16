@@ -1,4 +1,4 @@
-FROM python:3.11-slim
+FROM python:3.11.18-slim-trixie
 WORKDIR /app
 COPY webapi/requirements.txt /app/requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt

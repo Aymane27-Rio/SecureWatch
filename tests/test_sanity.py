@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -159,6 +160,32 @@ class ShellScriptTests(unittest.TestCase):
                     text=True,
                 )
                 self.assertNotEqual(result.returncode, 0)
+
+
+class ContainerImagePolicyTests(unittest.TestCase):
+    def test_container_images_use_patch_level_version_tags(self):
+        image_references = []
+
+        for dockerfile in ROOT.rglob("Dockerfile"):
+            for line in dockerfile.read_text(encoding="utf-8").splitlines():
+                fields = line.split()
+                if fields and fields[0] == "FROM":
+                    image_references.append((dockerfile, fields[1]))
+
+        compose_file = ROOT / "docker-compose.yml"
+        for line in compose_file.read_text(encoding="utf-8").splitlines():
+            stripped = line.strip()
+            if stripped.startswith("image:"):
+                image_references.append((compose_file, stripped.split(None, 1)[1]))
+
+        self.assertTrue(image_references, "No container image references were found")
+        version_tag = re.compile(r"^v?\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$")
+        for source, reference in image_references:
+            image = reference.split("@", 1)[0]
+            separator = image.rfind(":")
+            tag = image.split(":")[-1] if separator > image.rfind("/") else ""
+            with self.subTest(source=source.name, image=reference):
+                self.assertRegex(tag, version_tag)
 
 
 @unittest.skipIf(exporter is None, "prometheus-client is installed in CI")

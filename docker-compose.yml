@@ -28,7 +28,11 @@ services:
   frontend:
     build: ./frontend
     ports:
-      - "127.0.0.1:3000:80"
+      - "127.0.0.1:3000:8080"
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
     environment:
       WEBAPI_API_KEY: ${WEBAPI_API_KEY:?Create .env using the setup command in README.md}
     depends_on:
@@ -36,7 +40,7 @@ services:
         condition: service_healthy
 
   prometheus:
-    image: prom/prometheus:latest
+    image: prom/prometheus:v3.16.0
     ports:
       - "127.0.0.1:9090:9090"
     volumes:
@@ -46,7 +50,7 @@ services:
         condition: service_healthy
 
   grafana:
-    image: grafana/grafana-oss:latest
+    image: grafana/grafana:13.3.1
     ports:
       - "127.0.0.1:3001:3000"
     volumes:
