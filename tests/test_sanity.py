@@ -10,6 +10,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from webapi.db import get_conn
+from webapi import ingest
 from webapi.ingest import ingest_reports_from_dir
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -190,6 +191,22 @@ class ReportIngestionTests(unittest.TestCase):
             result = ingest_reports_from_dir(
                 logs_dir, root / "state" / "securewatch.db"
             )
+
+        self.assertEqual(result, {"reports": 0, "events": 0})
+
+    def test_reports_over_configured_size_limit_are_skipped(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            logs_dir = root / "logs"
+            logs_dir.mkdir()
+            (logs_dir / "events_20260101_000000.json").write_text(
+                "[{}]", encoding="utf-8"
+            )
+
+            with patch.object(ingest, "MAX_REPORT_BYTES", 2):
+                result = ingest_reports_from_dir(
+                    logs_dir, root / "state" / "securewatch.db"
+                )
 
         self.assertEqual(result, {"reports": 0, "events": 0})
 

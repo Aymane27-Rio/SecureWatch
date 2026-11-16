@@ -1,7 +1,36 @@
-import json
-from pathlib import Path
-from .db import get_conn, init_db
 import datetime
+import json
+import os
+import stat
+from pathlib import Path
+
+from .db import get_conn, init_db
+
+MAX_REPORT_BYTES = int(os.environ.get("WEBAPI_MAX_REPORT_BYTES", 10 * 1024 * 1024))
+if MAX_REPORT_BYTES < 1:
+    raise RuntimeError("WEBAPI_MAX_REPORT_BYTES must be a positive integer")
+
+
+def _load_report(path):
+    if not hasattr(os, "O_NOFOLLOW"):
+        raise RuntimeError(
+            "Report ingestion requires operating system O_NOFOLLOW support"
+        )
+
+    flags = os.O_RDONLY | os.O_NOFOLLOW | getattr(os, "O_CLOEXEC", 0)
+    descriptor = os.open(path, flags)
+    with os.fdopen(descriptor, "rb") as report_file:
+        metadata = os.fstat(report_file.fileno())
+        if not stat.S_ISREG(metadata.st_mode):
+            raise ValueError("report is not a regular file")
+        if metadata.st_size > MAX_REPORT_BYTES:
+            raise ValueError("report exceeds WEBAPI_MAX_REPORT_BYTES")
+
+        payload = report_file.read(MAX_REPORT_BYTES + 1)
+        if len(payload) > MAX_REPORT_BYTES:
+            raise ValueError("report exceeds WEBAPI_MAX_REPORT_BYTES")
+
+    return json.loads(payload.decode("utf-8"))
 
 
 def ingest_reports_from_dir(logs_dir="/app/data/logs", db_path=None, dry_run=False):
@@ -24,9 +53,8 @@ def ingest_reports_from_dir(logs_dir="/app/data/logs", db_path=None, dry_run=Fal
             continue
 
         try:
-            with path.open("r", encoding="utf-8") as f:
-                events = json.load(f)
-        except Exception as e:
+            events = _load_report(path)
+        except (OSError, UnicodeDecodeError, ValueError) as e:
             print(f"Failed to read {path}: {e}")
             continue
 
