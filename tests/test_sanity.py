@@ -278,6 +278,50 @@ class ReportIngestionTests(unittest.TestCase):
 
 
 class ShellScriptTests(unittest.TestCase):
+    def test_rkhunter_distinguishes_warnings_failures_and_clean_runs(self):
+        script = ROOT / "modules" / "rkhunter_run.sh"
+        with tempfile.TemporaryDirectory() as temp_dir:
+            bin_dir = Path(temp_dir) / "bin"
+            bin_dir.mkdir()
+            sudo_stub = bin_dir / "sudo"
+            sudo_stub.write_text('#!/usr/bin/env bash\nexec "$@"\n', encoding="utf-8")
+            sudo_stub.chmod(0o755)
+            rkhunter_stub = bin_dir / "rkhunter"
+            rkhunter_stub.write_text(
+                "#!/usr/bin/env bash\nprintf '%s\\n' \"${RKHUNTER_OUTPUT:-}\"\n"
+                'exit "${RKHUNTER_EXIT_CODE:-0}"\n',
+                encoding="utf-8",
+            )
+            rkhunter_stub.chmod(0o755)
+            env = os.environ.copy()
+            env["PATH"] = f"{bin_dir}:{env['PATH']}"
+
+            def run_module(output: str, exit_code: str):
+                env["RKHUNTER_OUTPUT"] = output
+                env["RKHUNTER_EXIT_CODE"] = exit_code
+                return subprocess.run(
+                    ["bash", str(script)],
+                    capture_output=True,
+                    check=False,
+                    text=True,
+                    env=env,
+                )
+
+            warnings = run_module("Warning: test finding", "1")
+            failure = run_module("database unavailable", "3")
+            clean = run_module("", "0")
+
+        self.assertEqual(warnings.returncode, 0)
+        self.assertIn('"severity":2', warnings.stdout)
+        self.assertIn('"warnings":1', warnings.stdout)
+        self.assertEqual(failure.returncode, 0)
+        self.assertIn('"summary":"rkhunter check failed"', failure.stdout)
+        self.assertIn('"exit_code":3', failure.stdout)
+        self.assertNotIn('"severity":0', failure.stdout)
+        self.assertEqual(clean.returncode, 0)
+        self.assertIn('"severity":0', clean.stdout)
+        self.assertIn('"warnings":0', clean.stdout)
+
     def test_aide_check_uses_private_temp_and_reports_failures(self):
         script = ROOT / "modules" / "aide_check.sh"
         self.assertNotIn("/tmp/aide.out", script.read_text(encoding="utf-8"))
