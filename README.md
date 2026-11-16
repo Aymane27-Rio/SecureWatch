@@ -16,7 +16,9 @@ Prerequisites: Docker Engine and the Docker Compose plugin.
 
 ```bash
 mkdir -p data
+umask 077
 printf 'WEBAPI_API_KEY=%s\n' "$(openssl rand -hex 32)" > .env
+chmod 600 .env
 docker compose up --build -d
 ```
 
@@ -95,4 +97,4 @@ Pushing a `v*` tag runs the release workflow. It validates the version and creat
 
 ## Security notes
 
-The Compose stack binds to localhost by default. API write operations require `WEBAPI_API_KEY`; keep `.env` private. Read endpoints do not require a key, so add an authenticated reverse proxy before exposing the stack beyond localhost. Reports can contain usernames and IP addresses, so handle and share them carefully. Review checks and thresholds for your systems before relying on the results.
+The Compose stack binds to localhost by default. API write operations require `WEBAPI_API_KEY`; the setup command creates `.env` with owner-only permissions, and the file is ignored by Git. Read endpoints do not require a key, so add an authenticated reverse proxy before exposing the stack beyond localhost. Reports can contain usernames and IP addresses, so handle and share them carefully. Review checks and thresholds for your systems before relying on the results.
