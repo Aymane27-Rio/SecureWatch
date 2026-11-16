@@ -1,80 +1,9 @@
 import datetime
-import json
-import os
 import sqlite3
-import stat
 from pathlib import Path
 
 from .db import get_conn, init_db
-
-MAX_REPORT_BYTES = int(os.environ.get("WEBAPI_MAX_REPORT_BYTES", 10 * 1024 * 1024))
-MAX_REPORT_EVENTS = 100_000
-if MAX_REPORT_BYTES < 1:
-    raise RuntimeError("WEBAPI_MAX_REPORT_BYTES must be a positive integer")
-
-
-def _load_report(path):
-    if not hasattr(os, "O_NOFOLLOW"):
-        raise RuntimeError(
-            "Report ingestion requires operating system O_NOFOLLOW support"
-        )
-
-    flags = os.O_RDONLY | os.O_NOFOLLOW | getattr(os, "O_CLOEXEC", 0)
-    descriptor = os.open(path, flags)
-    with os.fdopen(descriptor, "rb") as report_file:
-        metadata = os.fstat(report_file.fileno())
-        if not stat.S_ISREG(metadata.st_mode):
-            raise ValueError("report is not a regular file")
-        if metadata.st_size > MAX_REPORT_BYTES:
-            raise ValueError("report exceeds WEBAPI_MAX_REPORT_BYTES")
-
-        payload = report_file.read(MAX_REPORT_BYTES + 1)
-        if len(payload) > MAX_REPORT_BYTES:
-            raise ValueError("report exceeds WEBAPI_MAX_REPORT_BYTES")
-
-    return json.loads(payload.decode("utf-8"))
-
-
-def _normalize_events(events):
-    if not isinstance(events, list):
-        raise ValueError("expected a list of event objects")
-    if len(events) > MAX_REPORT_EVENTS:
-        raise ValueError("expected a list with no more than 100000 events")
-
-    normalized = []
-    text_fields = ("ts", "host", "category", "summary")
-    for event in events:
-        if not isinstance(event, dict):
-            raise ValueError("each report event must be an object")
-        if any(
-            event.get(field) is not None and not isinstance(event.get(field), str)
-            for field in text_fields
-        ):
-            raise ValueError("event text fields must contain strings or null")
-
-        raw_severity = event.get("severity", 0)
-        if isinstance(raw_severity, bool):
-            raise ValueError("event severity must be an integer from 0 to 4")
-        try:
-            severity = int(raw_severity)
-        except (TypeError, ValueError, OverflowError) as error:
-            raise ValueError("event severity must be an integer from 0 to 4") from error
-        if isinstance(raw_severity, float) and raw_severity != severity:
-            raise ValueError("event severity must be an integer from 0 to 4")
-        if not 0 <= severity <= 4:
-            raise ValueError("event severity must be an integer from 0 to 4")
-
-        normalized.append(
-            (
-                event.get("ts"),
-                event.get("host"),
-                event.get("category"),
-                severity,
-                event.get("summary"),
-                json.dumps(event.get("data", {})),
-            )
-        )
-    return normalized
+from python.report_io import MAX_REPORT_BYTES, read_report, validate_events
 
 
 def ingest_reports_from_dir(logs_dir="/app/data/logs", db_path=None, dry_run=False):
@@ -97,8 +26,9 @@ def ingest_reports_from_dir(logs_dir="/app/data/logs", db_path=None, dry_run=Fal
                 continue
 
             try:
-                events = _load_report(path)
-                normalized_events = _normalize_events(events)
+                normalized_events = validate_events(
+                    read_report(path, max_bytes=MAX_REPORT_BYTES)
+                )
             except (OSError, UnicodeDecodeError, ValueError) as error:
                 print(f"Skipping invalid report {path.name}: {error}")
                 continue

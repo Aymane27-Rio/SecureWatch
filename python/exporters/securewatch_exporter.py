@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 import glob
-import json
+import importlib
 import os
+import sys
 import time
 from pathlib import Path
 
@@ -10,6 +11,13 @@ from prometheus_client import Gauge, start_http_server
 BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ROOT = os.path.dirname(BASE)  # project root
 LOG_DIR = os.path.join(ROOT, "data", "logs")
+if ROOT not in sys.path:
+    sys.path.insert(0, ROOT)
+
+report_io = importlib.import_module("python.report_io")
+MAX_REPORT_BYTES = report_io.MAX_REPORT_BYTES
+read_report = report_io.read_report
+validate_events = report_io.validate_events
 
 g_total = Gauge("securewatch_events_total", "Total events in last report")
 g_by_sev = Gauge(
@@ -20,6 +28,16 @@ g_by_cat = Gauge(
 )
 previous_severities = set()
 previous_categories = set()
+ALLOWED_CATEGORIES = {
+    "accounts",
+    "auth",
+    "cloud",
+    "firewall",
+    "integrity",
+    "malware",
+    "network",
+    "packages",
+}
 
 
 def latest_json():
@@ -52,15 +70,8 @@ def tick():
         return
 
     try:
-        with open(path, "r", encoding="utf-8") as report_file:
-            events = json.load(report_file)
-    except (OSError, json.JSONDecodeError):
-        reset_metrics()
-        return
-
-    if not isinstance(events, list) or any(
-        not isinstance(event, dict) for event in events
-    ):
+        events = validate_events(read_report(path, max_bytes=MAX_REPORT_BYTES))
+    except (OSError, RuntimeError, UnicodeDecodeError, ValueError):
         reset_metrics()
         return
 
@@ -68,8 +79,9 @@ def tick():
     sev_counts = {}
     cat_counts = {}
     for event in events:
-        sev = str(event.get("severity", 0))
-        cat = str(event.get("category", "unknown"))
+        sev = str(event[3])
+        category = event[2] or "unknown"
+        cat = category if category in ALLOWED_CATEGORIES else "other"
         sev_counts[sev] = sev_counts.get(sev, 0) + 1
         cat_counts[cat] = cat_counts.get(cat, 0) + 1
 

@@ -476,6 +476,36 @@ class WorkflowSecurityTests(unittest.TestCase):
 
 @unittest.skipIf(exporter is None, "prometheus-client is installed in CI")
 class ExporterTests(unittest.TestCase):
+    def test_exporter_bounds_report_size_and_category_cardinality(self):
+        original_log_dir = exporter.LOG_DIR
+        with tempfile.TemporaryDirectory() as temp_dir:
+            log_dir = Path(temp_dir) / "logs"
+            log_dir.mkdir()
+            report_path = log_dir / "events_20260101_000000.json"
+            report_path.write_text(
+                json.dumps(
+                    [
+                        {"severity": index % 5, "category": f"custom-{index}"}
+                        for index in range(100)
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            exporter.LOG_DIR = str(log_dir)
+            try:
+                exporter.reset_metrics()
+                exporter.tick()
+                self.assertEqual(exporter.g_total._value.get(), 100)
+                self.assertEqual(exporter.previous_categories, {"other"})
+                self.assertEqual(exporter.g_by_cat.labels("other")._value.get(), 100)
+
+                with patch.object(exporter, "MAX_REPORT_BYTES", 1):
+                    exporter.tick()
+                self.assertEqual(exporter.g_total._value.get(), 0)
+            finally:
+                exporter.LOG_DIR = original_log_dir
+                exporter.reset_metrics()
+
     def test_bad_and_missing_reports_reset_exported_metrics(self):
         original_log_dir = exporter.LOG_DIR
         with tempfile.TemporaryDirectory() as temp_dir:
