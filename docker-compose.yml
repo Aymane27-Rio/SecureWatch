@@ -136,6 +136,38 @@ services:
       retries: 3
       start_period: 10s
 
+  alternate-api:
+    profiles:
+      - alternate-api
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    user: "${SECUREWATCH_UID:-1000}:${SECUREWATCH_GID:-1000}"
+    ports:
+      - "127.0.0.1:8001:8000"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    volumes:
+      - ./data/logs:/app/data/logs:ro
+    environment:
+      PYTHONDONTWRITEBYTECODE: "1"
+      WEBAPI_API_KEY: ${WEBAPI_API_KEY:?Create .env using the setup command in README.md}
+      SECUREWATCH_LOG_DIR: /app/data/logs
+    restart: unless-stopped
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import os; from urllib.request import Request, urlopen; request=Request('http://127.0.0.1:8000/api/metrics', headers={'X-API-Key':os.environ['WEBAPI_API_KEY']}); urlopen(request, timeout=2).read(1)"
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+
 
 
 volumes:

@@ -306,6 +306,12 @@ class ContainerImagePolicyTests(unittest.TestCase):
             with self.subTest(source=source.name, image=reference):
                 self.assertRegex(tag, version_tag)
 
+    def test_api_images_default_to_non_root_users(self):
+        for relative_path in ("webapi/Dockerfile", "backend/Dockerfile"):
+            dockerfile = ROOT / relative_path
+            with self.subTest(dockerfile=relative_path):
+                self.assertIn("USER 1000:1000", dockerfile.read_text(encoding="utf-8"))
+
 
 @unittest.skipIf(exporter is None, "prometheus-client is installed in CI")
 class ExporterTests(unittest.TestCase):

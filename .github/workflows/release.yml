@@ -45,10 +45,7 @@ jobs:
         run: docker compose pull prometheus grafana
 
       - name: Build Compose images
-        run: docker compose build exporter webapi frontend
-
-      - name: Build alternate API image
-        run: docker build -f backend/Dockerfile -t securewatch-backend .
+        run: docker compose --profile alternate-api build exporter webapi frontend alternate-api
 
       - name: Set up Node.js
         uses: actions/setup-node@v4

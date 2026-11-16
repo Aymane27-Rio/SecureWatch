@@ -43,13 +43,22 @@ Host-published services bind only to loopback:
 
 - Dashboard: <http://127.0.0.1:3000>
 - API: <http://127.0.0.1:8000> (data routes require `X-API-Key`; `/hello` is public)
+- Alternate file-backed API: <http://127.0.0.1:8001> (optional; data routes require `X-API-Key`)
 - Prometheus: <http://127.0.0.1:9090>
 - Grafana: <http://127.0.0.1:3001>
 - Exporter metrics are available to Prometheus on the internal Compose network.
 
+To start only the alternate API service, use its opt-in Compose profile:
+
+```bash
+docker compose --profile alternate-api up --build -d alternate-api
+```
+
+This starts only the alternate API service. It uses the same local API key, reads `data/logs` read-only, and binds to loopback on port 8001.
+
 Run a scan from the repository root with `make run`. Reports and logs appear under `data/`; the API imports new event files automatically. A few checks use `sudo` for full visibility. The API requires the configured `X-API-Key` for report and event routes, so keep the Compose ports loopback-only. For remote dashboard access, use a host-based reverse proxy with TLS and authentication, targeting `127.0.0.1:3000`; do not publish the API, Prometheus, Grafana, or exporter ports directly.
 
-The API and metrics exporter run as the configured host UID/GID without Linux capabilities. The API container has a read-only root filesystem and can only read `data/logs` and write its database under `data/state`. The dashboard NGINX service runs unprivileged. Prometheus and Grafana also run with a read-only root filesystem and no Linux capabilities. Prometheus samples and Grafana configuration persist in named Docker volumes. Container base images and monitoring services use explicit upstream version tags; review vendor security updates and upgrade those tags deliberately.
+Both API images and the metrics exporter run as the configured host UID/GID without Linux capabilities. The primary API container has a read-only root filesystem and can only read `data/logs` and write its database under `data/state`; the optional alternate API also has a read-only root filesystem and only reads `data/logs`. The dashboard NGINX service runs unprivileged. Prometheus and Grafana also run with a read-only root filesystem and no Linux capabilities. Prometheus samples and Grafana configuration persist in named Docker volumes. Container base images and monitoring services use explicit upstream version tags; review vendor security updates and upgrade those tags deliberately.
 
 Stop the stack with `docker compose down`. The SQLite database and reports remain in `data/`.
 
