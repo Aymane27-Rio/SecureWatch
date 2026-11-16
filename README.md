@@ -19,15 +19,15 @@ install -d -m 700 data/logs data/reports data/state
 if [ ! -f .env ]; then
   (
     umask 077
-    printf 'WEBAPI_API_KEY=%s\nSECUREWATCH_UID=%s\nSECUREWATCH_GID=%s\n' \
-      "$(openssl rand -hex 32)" "$(id -u)" "$(id -g)" > .env
+    printf 'WEBAPI_API_KEY=%s\nSECUREWATCH_UID=%s\nSECUREWATCH_GID=%s\nGRAFANA_ADMIN_PASSWORD=%s\n' \
+      "$(openssl rand -hex 32)" "$(id -u)" "$(id -g)" "$(openssl rand -hex 32)" > .env
   )
 fi
 chmod 600 .env
 docker compose up --build -d
 ```
 
-If `.env` already exists from an earlier setup, add `SECUREWATCH_UID` and `SECUREWATCH_GID` using the values from `id -u` and `id -g`. If an earlier container created root-owned files under `data/logs` or `data/state`, give them back to your account once with `sudo chown -R "$(id -u):$(id -g)" data/logs data/state` before starting the stack.
+If `.env` already exists from an earlier setup, add `SECUREWATCH_UID`, `SECUREWATCH_GID`, and `GRAFANA_ADMIN_PASSWORD` once. Use the values from `id -u` and `id -g` for the UID/GID, and generate the Grafana password with `openssl rand -hex 32`. If an earlier container created root-owned files under `data/logs` or `data/state`, give them back to your account once with `sudo chown -R "$(id -u):$(id -g)" data/logs data/state` before starting the stack. Grafana reads this password when its data volume is first initialized; an existing Grafana volume keeps its current login.
 
 Host-published services bind only to loopback:
 
@@ -39,7 +39,7 @@ Host-published services bind only to loopback:
 
 Run a scan from the repository root with `make run`. Reports and logs appear under `data/`; the API imports new event files automatically. A few checks use `sudo` for full visibility. The API requires the configured `X-API-Key` for report and event routes, so keep the Compose ports loopback-only. For remote dashboard access, use a host-based reverse proxy with TLS and authentication, targeting `127.0.0.1:3000`; do not publish the API, Prometheus, Grafana, or exporter ports directly.
 
-The API and metrics exporter run as the configured host UID/GID without Linux capabilities. The API container has a read-only root filesystem and can only read `data/logs` and write its database under `data/state`. The dashboard NGINX service runs unprivileged. Container base images and monitoring services use explicit upstream version tags; review vendor security updates and upgrade those tags deliberately.
+The API and metrics exporter run as the configured host UID/GID without Linux capabilities. The API container has a read-only root filesystem and can only read `data/logs` and write its database under `data/state`. The dashboard NGINX service runs unprivileged. Prometheus and Grafana also run with a read-only root filesystem and no Linux capabilities. Prometheus samples and Grafana configuration persist in named Docker volumes. Container base images and monitoring services use explicit upstream version tags; review vendor security updates and upgrade those tags deliberately.
 
 Stop the stack with `docker compose down`. The SQLite database and reports remain in `data/`.
 

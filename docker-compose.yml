@@ -43,20 +43,64 @@ services:
     image: prom/prometheus:v3.16.0
     ports:
       - "127.0.0.1:9090:9090"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp
     volumes:
       - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-storage:/prometheus
+    restart: unless-stopped
     depends_on:
       exporter:
         condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - wget
+        - -qO-
+        - http://127.0.0.1:9090/-/healthy
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
 
   grafana:
     image: grafana/grafana:13.3.1
     ports:
       - "127.0.0.1:3001:3000"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp
+      - /var/log/grafana
     volumes:
       - grafana-storage:/var/lib/grafana
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?Add GRAFANA_ADMIN_PASSWORD to .env}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+    restart: unless-stopped
     depends_on:
-      - prometheus
+      prometheus:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - curl
+        - --fail
+        - --silent
+        - http://127.0.0.1:3000/api/health
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
 
   webapi:
     build:
@@ -96,3 +140,4 @@ services:
 
 volumes:
   grafana-storage:
+  prometheus-storage:
