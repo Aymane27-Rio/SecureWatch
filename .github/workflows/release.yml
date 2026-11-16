@@ -67,6 +67,34 @@ jobs:
         working-directory: frontend
         run: npm audit --audit-level=moderate
 
+      - name: Set bind-mount identity
+        run: |
+          echo "SECUREWATCH_UID=$(id -u)" >> "$GITHUB_ENV"
+          echo "SECUREWATCH_GID=$(id -g)" >> "$GITHUB_ENV"
+
+      - name: Prepare private test data
+        run: install -d -m 700 data/logs data/reports data/state
+
+      - name: Start Compose stack
+        run: docker compose --profile alternate-api up -d --wait --wait-timeout 180
+
+      - name: Smoke-test protected APIs and health endpoints
+        run: |
+          curl --fail --silent http://127.0.0.1:3000/ > /dev/null
+          curl --fail --silent http://127.0.0.1:8000/hello > /dev/null
+          test "$(curl --silent --output /dev/null --write-out '%{http_code}' http://127.0.0.1:8000/reports)" = "401"
+          curl --fail --silent --header "X-API-Key: $WEBAPI_API_KEY" http://127.0.0.1:8000/reports > /dev/null
+          test "$(curl --silent --output /dev/null --write-out '%{http_code}' http://127.0.0.1:8001/api/reports)" = "401"
+          curl --fail --silent --header "X-API-Key: $WEBAPI_API_KEY" http://127.0.0.1:8001/api/reports > /dev/null
+          curl --fail --silent http://127.0.0.1:9090/-/healthy > /dev/null
+          curl --fail --silent http://127.0.0.1:3001/api/health > /dev/null
+          curl --fail --silent --user "admin:$GRAFANA_ADMIN_PASSWORD" http://127.0.0.1:3001/api/user > /dev/null
+          curl --fail --silent --head http://127.0.0.1:3000/ | grep --ignore-case --quiet '^Content-Security-Policy:'
+
+      - name: Stop Compose stack and remove test volumes
+        if: always()
+        run: docker compose --profile alternate-api down --volumes --remove-orphans
+
   create-release:
     runs-on: ubuntu-latest
     needs: verify
