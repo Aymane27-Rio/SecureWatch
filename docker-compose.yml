@@ -1,8 +1,27 @@
 services:
   exporter:
     build: .
+    command: ["python3", "python/exporters/securewatch_exporter.py"]
+    expose:
+      - "9109"
+    read_only: true
+    environment:
+      PYTHONDONTWRITEBYTECODE: "1"
+    security_opt:
+      - no-new-privileges:true
     volumes:
-      - ./data:/app/data
+      - ./data:/app/data:ro
+    restart: unless-stopped
+    healthcheck:
+      test:
+        - CMD
+        - python3
+        - -c
+        - "from urllib.request import urlopen; urlopen('http://127.0.0.1:9109/metrics', timeout=2).read(1)"
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
   frontend:
     build: ./frontend
     ports:
@@ -19,7 +38,8 @@ services:
     volumes:
       - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
     depends_on:
-      - exporter
+      exporter:
+        condition: service_healthy
 
   grafana:
     image: grafana/grafana-oss:latest

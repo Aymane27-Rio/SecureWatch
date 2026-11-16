@@ -15,6 +15,13 @@ sys.path.insert(0, str(ROOT / "python"))
 from log_parser import parse_failed_ssh, parse_sudo_anomalies  # noqa: E402
 from report_generator import render_html, severity_tag  # noqa: E402
 
+try:
+    from exporters import securewatch_exporter as exporter  # noqa: E402
+except ModuleNotFoundError as error:
+    if error.name != "prometheus_client":
+        raise
+    exporter = None
+
 
 class LogParserTests(unittest.TestCase):
     def test_failed_ssh_events_respect_threshold(self):
@@ -152,6 +159,41 @@ class ShellScriptTests(unittest.TestCase):
                     text=True,
                 )
                 self.assertNotEqual(result.returncode, 0)
+
+
+@unittest.skipIf(exporter is None, "prometheus-client is installed in CI")
+class ExporterTests(unittest.TestCase):
+    def test_bad_and_missing_reports_reset_exported_metrics(self):
+        original_log_dir = exporter.LOG_DIR
+        with tempfile.TemporaryDirectory() as temp_dir:
+            log_dir = Path(temp_dir) / "logs"
+            log_dir.mkdir()
+            valid_report = log_dir / "events_20260101_000000.json"
+            valid_report.write_text(
+                '[{"severity":2,"category":"auth"}]', encoding="utf-8"
+            )
+            outside_report = Path(temp_dir) / "outside.json"
+            outside_report.write_text(
+                '[{"severity":9,"category":"private"}]', encoding="utf-8"
+            )
+            (log_dir / "events_20260102_000000.json").symlink_to(outside_report)
+            exporter.LOG_DIR = str(log_dir)
+            try:
+                exporter.tick()
+                self.assertEqual(exporter.g_total._value.get(), 1)
+                self.assertEqual(exporter.g_by_sev.labels("2")._value.get(), 1)
+                self.assertEqual(exporter.previous_severities, {"2"})
+
+                valid_report.write_text("{invalid", encoding="utf-8")
+                exporter.tick()
+                self.assertEqual(exporter.g_total._value.get(), 0)
+                self.assertEqual(exporter.g_by_sev.labels("2")._value.get(), 0)
+
+                valid_report.unlink()
+                exporter.tick()
+                self.assertEqual(exporter.g_total._value.get(), 0)
+            finally:
+                exporter.LOG_DIR = original_log_dir
 
 
 if __name__ == "__main__":
