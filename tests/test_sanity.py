@@ -281,6 +281,18 @@ class ShellScriptTests(unittest.TestCase):
                 self.assertNotEqual(result.returncode, 0)
 
 
+class FrontendSecurityTests(unittest.TestCase):
+    def test_dashboard_can_use_strict_style_policy(self):
+        app_source = (ROOT / "frontend" / "src" / "App.jsx").read_text(encoding="utf-8")
+        nginx_config = (ROOT / "frontend" / "nginx.conf").read_text(encoding="utf-8")
+
+        self.assertNotIn("style={{", app_source)
+        self.assertIn("style-src 'self'", nginx_config)
+        self.assertIn("connect-src 'self'", nginx_config)
+        self.assertIn('X-Content-Type-Options "nosniff"', nginx_config)
+        self.assertIn('X-Frame-Options "DENY"', nginx_config)
+
+
 class ContainerImagePolicyTests(unittest.TestCase):
     def test_container_images_use_patch_level_version_tags(self):
         image_references = []
