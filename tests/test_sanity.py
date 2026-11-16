@@ -6,6 +6,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from unittest.mock import patch
 
@@ -170,6 +171,71 @@ class ReportIngestionTests(unittest.TestCase):
             )
 
         self.assertEqual(result, {"reports": 0, "events": 0})
+
+    def test_invalid_event_is_skipped_without_stopping_later_reports(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            logs_dir = root / "logs"
+            logs_dir.mkdir()
+            (logs_dir / "events_20260101_000000.json").write_text(
+                '[{"severity":"invalid"}]', encoding="utf-8"
+            )
+            (logs_dir / "events_20260101_000001.json").write_text(
+                '[{"severity":2,"summary":"valid report"}]', encoding="utf-8"
+            )
+            db_path = root / "state" / "securewatch.db"
+
+            result = ingest_reports_from_dir(logs_dir, db_path)
+            conn = get_conn(db_path)
+            try:
+                report_ids = [
+                    row[0]
+                    for row in conn.execute(
+                        "SELECT report_id FROM reports ORDER BY report_id"
+                    )
+                ]
+                stored_events = conn.execute("SELECT COUNT(*) FROM events").fetchone()[
+                    0
+                ]
+            finally:
+                conn.close()
+
+        self.assertEqual(result, {"reports": 1, "events": 1})
+        self.assertEqual(report_ids, ["20260101_000001"])
+        self.assertEqual(stored_events, 1)
+
+    def test_concurrent_ingestion_does_not_duplicate_reports(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            logs_dir = root / "logs"
+            logs_dir.mkdir()
+            (logs_dir / "events_20260101_000000.json").write_text(
+                '[{"severity":2,"summary":"single report"}]', encoding="utf-8"
+            )
+            db_path = root / "state" / "securewatch.db"
+            initialized_conn = get_conn(db_path)
+            initialized_conn.close()
+
+            with ThreadPoolExecutor(max_workers=2) as executor:
+                results = list(
+                    executor.map(
+                        lambda _: ingest_reports_from_dir(logs_dir, db_path),
+                        range(2),
+                    )
+                )
+
+            conn = get_conn(db_path)
+            try:
+                report_count = conn.execute("SELECT COUNT(*) FROM reports").fetchone()[
+                    0
+                ]
+                event_count = conn.execute("SELECT COUNT(*) FROM events").fetchone()[0]
+            finally:
+                conn.close()
+
+        self.assertEqual(sum(result["reports"] for result in results), 1)
+        self.assertEqual(report_count, 1)
+        self.assertEqual(event_count, 1)
 
     def test_symlinked_reports_are_not_ingested(self):
         event = {
