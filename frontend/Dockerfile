@@ -13,8 +13,7 @@ RUN npm run build
 FROM nginx/nginx-unprivileged:1.31.8-alpine3.24
 COPY --from=build /app/dist /usr/share/nginx/html
 COPY nginx.conf /etc/nginx/templates/default.conf.template
-COPY validate-api-key.sh /docker-entrypoint.d/10-validate-api-key.sh
-RUN chmod +x /docker-entrypoint.d/10-validate-api-key.sh
+COPY --chmod=0555 validate-api-key.sh /docker-entrypoint.d/10-validate-api-key.sh
 ENV NGINX_ENVSUBST_FILTER=^WEBAPI_API_KEY
 EXPOSE 8080
 CMD ["nginx", "-g", "daemon off;"]
