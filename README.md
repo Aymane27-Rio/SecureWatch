@@ -22,15 +22,15 @@ chmod 600 .env
 docker compose up --build -d
 ```
 
-The stack binds to localhost by default:
+Host-published services bind only to loopback:
 
 - Dashboard: <http://127.0.0.1:3000>
 - API: <http://127.0.0.1:8000>
 - Prometheus: <http://127.0.0.1:9090>
 - Grafana: <http://127.0.0.1:3001>
-- Exporter: <http://127.0.0.1:9109/metrics>
+- Exporter metrics are available to Prometheus on the internal Compose network.
 
-Run a scan from the repository root with `make run`. Reports and logs appear under `data/`; the API imports new event files automatically. A few checks use `sudo` for full visibility. To expose the stack on another interface, set `SECUREWATCH_BIND_ADDRESS` in `.env` before starting Compose.
+Run a scan from the repository root with `make run`. Reports and logs appear under `data/`; the API imports new event files automatically. A few checks use `sudo` for full visibility. The read API returns host reports and events without authentication, so keep the Compose ports loopback-only. For remote dashboard access, use a host-based reverse proxy with TLS and authentication, targeting `127.0.0.1:3000`; do not publish the API, Prometheus, Grafana, or exporter ports directly.
 
 Stop the stack with `docker compose down`. The SQLite database and reports remain in `data/`.
 
@@ -97,4 +97,4 @@ Pushing a `v*` tag runs the release workflow. It validates the version and creat
 
 ## Security notes
 
-The Compose stack binds to localhost by default. API write operations require `WEBAPI_API_KEY`; the setup command creates `.env` with owner-only permissions, and the file is ignored by Git. Read endpoints do not require a key, so add an authenticated reverse proxy before exposing the stack beyond localhost. Reports can contain usernames and IP addresses, so handle and share them carefully. Review checks and thresholds for your systems before relying on the results.
+The Compose stack binds its host ports to loopback. API write operations require `WEBAPI_API_KEY`; the setup command creates `.env` with owner-only permissions, and the file is ignored by Git. Read endpoints do not require a key and can return usernames, IP addresses, and other host details. For remote access, put the dashboard behind a TLS-enabled, authenticated reverse proxy and keep the API and monitoring ports private. Review checks and thresholds for your systems before relying on the results.

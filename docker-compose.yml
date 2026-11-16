@@ -1,21 +1,19 @@
 services:
   exporter:
     build: .
-    ports:
-      - "${SECUREWATCH_BIND_ADDRESS:-127.0.0.1}:9109:9109"
     volumes:
       - ./data:/app/data
   frontend:
     build: ./frontend
     ports:
-      - "${SECUREWATCH_BIND_ADDRESS:-127.0.0.1}:3000:80"
+      - "127.0.0.1:3000:80"
     depends_on:
       - webapi
 
   prometheus:
     image: prom/prometheus:latest
     ports:
-      - "${SECUREWATCH_BIND_ADDRESS:-127.0.0.1}:9090:9090"
+      - "127.0.0.1:9090:9090"
     volumes:
       - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
     depends_on:
@@ -24,7 +22,7 @@ services:
   grafana:
     image: grafana/grafana-oss:latest
     ports:
-      - "${SECUREWATCH_BIND_ADDRESS:-127.0.0.1}:3001:3000"
+      - "127.0.0.1:3001:3000"
     volumes:
       - grafana-storage:/var/lib/grafana
     depends_on:
@@ -35,7 +33,7 @@ services:
       context: .
       dockerfile: webapi/Dockerfile
     ports:
-      - "${SECUREWATCH_BIND_ADDRESS:-127.0.0.1}:8000:8000"
+      - "127.0.0.1:8000:8000"
     volumes:
       - ./data:/app/data
     environment:
