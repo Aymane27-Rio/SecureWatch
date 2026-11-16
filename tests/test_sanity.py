@@ -278,6 +278,55 @@ class ReportIngestionTests(unittest.TestCase):
 
 
 class ShellScriptTests(unittest.TestCase):
+    def test_aide_check_uses_private_temp_and_reports_failures(self):
+        script = ROOT / "modules" / "aide_check.sh"
+        self.assertNotIn("/tmp/aide.out", script.read_text(encoding="utf-8"))
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            bin_dir = Path(temp_dir) / "bin"
+            bin_dir.mkdir()
+            sudo_stub = bin_dir / "sudo"
+            sudo_stub.write_text('#!/usr/bin/env bash\nexec "$@"\n', encoding="utf-8")
+            sudo_stub.chmod(0o755)
+            aide_stub = bin_dir / "aide"
+            aide_stub.write_text(
+                "#!/usr/bin/env bash\nprintf '%s\\n' \"${AIDE_OUTPUT:-}\"\n"
+                'exit "${AIDE_EXIT_CODE:-0}"\n',
+                encoding="utf-8",
+            )
+            aide_stub.chmod(0o755)
+
+            env = os.environ.copy()
+            env["PATH"] = f"{bin_dir}:{env['PATH']}"
+            env["AIDE_OUTPUT"] = (
+                "AIDE found differences between database and filesystem"
+            )
+            env["AIDE_EXIT_CODE"] = "1"
+            differences = subprocess.run(
+                ["bash", str(script)],
+                capture_output=True,
+                check=False,
+                text=True,
+                env=env,
+            )
+            env["AIDE_OUTPUT"] = "permission denied"
+            env["AIDE_EXIT_CODE"] = "2"
+            failure = subprocess.run(
+                ["bash", str(script)],
+                capture_output=True,
+                check=False,
+                text=True,
+                env=env,
+            )
+
+        self.assertEqual(differences.returncode, 0)
+        self.assertIn('"severity":3', differences.stdout)
+        self.assertIn("AIDE found differences", differences.stdout)
+        self.assertEqual(failure.returncode, 0)
+        self.assertIn('"summary":"AIDE check failed"', failure.stdout)
+        self.assertIn('"exit_code":2', failure.stdout)
+        self.assertNotIn("AIDE no differences", failure.stdout)
+
     def test_scan_writes_private_artifacts_to_configured_directories(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir) / "project"
