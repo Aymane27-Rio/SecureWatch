@@ -169,6 +169,29 @@ class ReportIngestionTests(unittest.TestCase):
 
         self.assertEqual(result, {"reports": 0, "events": 0})
 
+    def test_symlinked_reports_are_not_ingested(self):
+        event = {
+            "ts": "2026-01-01T00:00:00Z",
+            "host": "outside-host",
+            "category": "private",
+            "severity": 4,
+            "summary": "outside file content",
+            "data": {"path": "/outside"},
+        }
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            logs_dir = root / "logs"
+            logs_dir.mkdir()
+            outside = root / "outside.json"
+            outside.write_text(json.dumps([event]), encoding="utf-8")
+            (logs_dir / "events_20260101_000000.json").symlink_to(outside)
+
+            result = ingest_reports_from_dir(
+                logs_dir, root / "state" / "securewatch.db"
+            )
+
+        self.assertEqual(result, {"reports": 0, "events": 0})
+
 
 class ShellScriptTests(unittest.TestCase):
     def test_scan_writes_private_artifacts_to_configured_directories(self):

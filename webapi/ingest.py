@@ -14,6 +14,9 @@ def ingest_reports_from_dir(logs_dir="/app/data/logs", db_path=None, dry_run=Fal
     inserted_events = 0
 
     for path in sorted(logs_dir.glob("events_*.json")):
+        if path.is_symlink() or not path.is_file():
+            continue
+
         report_id = path.name.removeprefix("events_").removesuffix(".json")
         # skip if report already ingested
         cur.execute("SELECT 1 FROM reports WHERE report_id=? LIMIT 1", (report_id,))
