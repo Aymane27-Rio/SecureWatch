@@ -15,12 +15,19 @@ SecureWatch is a modular Linux security monitoring toolkit. It runs local checks
 Prerequisites: Docker Engine and the Docker Compose plugin.
 
 ```bash
-mkdir -p data
-umask 077
-printf 'WEBAPI_API_KEY=%s\n' "$(openssl rand -hex 32)" > .env
+install -d -m 700 data/logs data/reports data/state
+if [ ! -f .env ]; then
+  (
+    umask 077
+    printf 'WEBAPI_API_KEY=%s\nSECUREWATCH_UID=%s\nSECUREWATCH_GID=%s\n' \
+      "$(openssl rand -hex 32)" "$(id -u)" "$(id -g)" > .env
+  )
+fi
 chmod 600 .env
 docker compose up --build -d
 ```
+
+If `.env` already exists from an earlier setup, add `SECUREWATCH_UID` and `SECUREWATCH_GID` using the values from `id -u` and `id -g`. If an earlier container created root-owned files under `data/logs` or `data/state`, give them back to your account once with `sudo chown -R "$(id -u):$(id -g)" data/logs data/state` before starting the stack.
 
 Host-published services bind only to loopback:
 
@@ -30,7 +37,9 @@ Host-published services bind only to loopback:
 - Grafana: <http://127.0.0.1:3001>
 - Exporter metrics are available to Prometheus on the internal Compose network.
 
-Run a scan from the repository root with `make run`. Reports and logs appear under `data/`; the API imports new event files automatically. A few checks use `sudo` for full visibility. The read API returns host reports and events without authentication, so keep the Compose ports loopback-only. For remote dashboard access, use a host-based reverse proxy with TLS and authentication, targeting `127.0.0.1:3000`; do not publish the API, Prometheus, Grafana, or exporter ports directly.
+Run a scan from the repository root with `make run`. Reports and logs appear under `data/`; the API imports new event files automatically. A few checks use `sudo` for full visibility. The API requires the configured `X-API-Key` for report and event routes, so keep the Compose ports loopback-only. For remote dashboard access, use a host-based reverse proxy with TLS and authentication, targeting `127.0.0.1:3000`; do not publish the API, Prometheus, Grafana, or exporter ports directly.
+
+The API and metrics exporter run as the configured host UID/GID without Linux capabilities. The API container has a read-only root filesystem and can only read `data/logs` and write its database under `data/state`.
 
 Stop the stack with `docker compose down`. The SQLite database and reports remain in `data/`.
 

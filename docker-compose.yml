@@ -2,15 +2,18 @@ services:
   exporter:
     build: .
     command: ["python3", "python/exporters/securewatch_exporter.py"]
+    user: "${SECUREWATCH_UID:-1000}:${SECUREWATCH_GID:-1000}"
     expose:
       - "9109"
     read_only: true
+    cap_drop:
+      - ALL
     environment:
       PYTHONDONTWRITEBYTECODE: "1"
     security_opt:
       - no-new-privileges:true
     volumes:
-      - ./data:/app/data:ro
+      - ./data/logs:/app/data/logs:ro
     restart: unless-stopped
     healthcheck:
       test:
@@ -29,7 +32,8 @@ services:
     environment:
       WEBAPI_API_KEY: ${WEBAPI_API_KEY:?Create .env using the setup command in README.md}
     depends_on:
-      - webapi
+      webapi:
+        condition: service_healthy
 
   prometheus:
     image: prom/prometheus:latest
@@ -54,16 +58,35 @@ services:
     build:
       context: .
       dockerfile: webapi/Dockerfile
+    user: "${SECUREWATCH_UID:-1000}:${SECUREWATCH_GID:-1000}"
     ports:
       - "127.0.0.1:8000:8000"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
     volumes:
-      - ./data:/app/data
+      - ./data/logs:/app/data/logs:ro
+      - ./data/state:/app/data/state
     environment:
+      PYTHONDONTWRITEBYTECODE: "1"
       WEBAPI_DB_PATH: /app/data/state/securewatch.db
       WEBAPI_LOGS_DIR: /app/data/logs
       WEBAPI_API_KEY: ${WEBAPI_API_KEY:?Create .env using the setup command in README.md}
       WEBAPI_ALLOW_SCAN: "0"
       WEBAPI_INGEST_INTERVAL: "60"
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "from urllib.request import urlopen; urlopen('http://127.0.0.1:8000/hello', timeout=2).read(1)"
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
 
 
 
