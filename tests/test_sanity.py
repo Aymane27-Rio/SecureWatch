@@ -1,3 +1,4 @@
+import fcntl
 import json
 import os
 import re
@@ -267,14 +268,37 @@ class ShellScriptTests(unittest.TestCase):
                     "PATH": f"{root / 'bin'}:{env['PATH']}",
                 }
             )
-            subprocess.run(["bash", str(script)], cwd=root, env=env, check=True)
+
+            state_dir.mkdir(parents=True)
+            lock_path = state_dir / "scan.lock"
+            with lock_path.open("w", encoding="utf-8") as lock_file:
+                lock_path.chmod(0o600)
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                rejected_run = subprocess.run(
+                    ["bash", str(script)],
+                    cwd=root,
+                    env=env,
+                    capture_output=True,
+                    check=False,
+                    text=True,
+                )
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+
+            self.assertEqual(rejected_run.returncode, 75)
+            self.assertIn("A SecureWatch scan is already running", rejected_run.stderr)
+            for _ in range(2):
+                subprocess.run(["bash", str(script)], cwd=root, env=env, check=True)
 
             event_files = list(logs_dir.glob("events_*.json"))
             report_files = list(reports_dir.glob("report_*.html"))
-            self.assertEqual(len(event_files), 1)
-            self.assertEqual(len(report_files), 1)
-            self.assertEqual(event_files[0].stat().st_mode & 0o777, 0o600)
-            self.assertEqual(report_files[0].stat().st_mode & 0o777, 0o600)
+            self.assertEqual(len(event_files), 2)
+            self.assertEqual(len(report_files), 2)
+            self.assertEqual(
+                {path.stat().st_mode & 0o777 for path in event_files}, {0o600}
+            )
+            self.assertEqual(
+                {path.stat().st_mode & 0o777 for path in report_files}, {0o600}
+            )
             self.assertEqual(logs_dir.stat().st_mode & 0o777, 0o700)
             self.assertEqual(reports_dir.stat().st_mode & 0o777, 0o700)
             self.assertFalse((root / "data").exists())

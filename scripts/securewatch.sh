@@ -10,9 +10,22 @@ source "$ROOT/config/securewatch.conf"
 
 mkdir -p "$LOG_DIR" "$REPORT_DIR" "$STATE_DIR"
 
+if ! command -v flock >/dev/null 2>&1; then
+  echo "flock is required for scan locking; install util-linux." >&2
+  exit 1
+fi
+exec 9>"$STATE_DIR/scan.lock"
+if ! flock -n 9; then
+  echo "A SecureWatch scan is already running." >&2
+  exit 75
+fi
+if [[ "$EUID" -eq 0 ]]; then
+  chown --reference="$STATE_DIR" -- "$STATE_DIR/scan.lock"
+fi
+
 timestamp="$(date +%Y%m%d_%H%M%S)"
-run_dir="$STATE_DIR/run_$timestamp"
-mkdir -p "$run_dir"
+run_dir="$(mktemp -d "$STATE_DIR/run_${timestamp}.XXXXXX")"
+run_id="${run_dir##*/run_}"
 
 # Temporary NDJSON file for this run
 events_file="$run_dir/events.ndjson"
@@ -35,7 +48,7 @@ if command -v python3 >/dev/null 2>&1; then
 fi
 
 # aggregate → stable JSON (array)
-out_json="$LOG_DIR/events_${timestamp}.json"
+out_json="$LOG_DIR/events_${run_id}.json"
 if command -v jq >/dev/null 2>&1; then
   jq -s '[.[]]' "$events_file" > "$out_json"
 else
@@ -49,7 +62,7 @@ fi
 
 # render HTML report
 if command -v python3 >/dev/null 2>&1; then
-  report_file="$REPORT_DIR/report_${timestamp}.html"
+  report_file="$REPORT_DIR/report_${run_id}.html"
   python3 "$ROOT/python/report_generator.py" --input "$out_json" --out "$report_file" || true
   if [[ "$EUID" -eq 0 && -f "$report_file" ]]; then
     chown --reference="$REPORT_DIR" -- "$report_file"

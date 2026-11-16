@@ -64,7 +64,7 @@ Stop the stack with `docker compose down`. The SQLite database and reports remai
 
 ## Run locally without Docker
 
-Python 3.11+ is required. Create the environment and install dependencies once:
+Python 3.11+ and `flock` from util-linux are required for host scans. Create the Python environment and install dependencies once:
 
 ```bash
 make venv
