@@ -114,6 +114,19 @@ class WebApiTests(unittest.TestCase):
         api.DB_PATH = self.original_db_path
         self.temp_dir.cleanup()
 
+    def test_startup_rejects_missing_or_malformed_api_keys(self):
+        original_api_key = api.API_KEY
+        try:
+            for invalid_key in ("", "short", "A" * 64, "g" * 64):
+                with self.subTest(api_key=invalid_key):
+                    api.API_KEY = invalid_key
+                    with self.assertRaises(RuntimeError):
+                        api.validate_api_key_configuration()
+            api.API_KEY = "a" * 64
+            api.validate_api_key_configuration()
+        finally:
+            api.API_KEY = original_api_key
+
     def test_metrics_and_event_filters_use_stored_data(self):
         metrics = api.metrics()
         filtered = api.query_events(severity=2, category="auth", limit=10, offset=0)
@@ -227,6 +240,19 @@ class LegacyApiSecurityTests(unittest.TestCase):
         self.assertEqual(symlink_report[0], 404)
         self.assertEqual(invalid_shape[0], 500)
         self.assertEqual(invalid_report_id[0], 400)
+
+    def test_alternate_backend_startup_rejects_invalid_api_key(self):
+        original_api_key = legacy_api.API_KEY
+        try:
+            for invalid_key in ("", "short", "A" * 64, "g" * 64):
+                with self.subTest(api_key=invalid_key):
+                    legacy_api.API_KEY = invalid_key
+                    with self.assertRaises(RuntimeError):
+                        legacy_api.validate_api_key_configuration()
+            legacy_api.API_KEY = "b" * 64
+            legacy_api.validate_api_key_configuration()
+        finally:
+            legacy_api.API_KEY = original_api_key
 
 
 if __name__ == "__main__":

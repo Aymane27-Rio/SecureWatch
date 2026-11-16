@@ -1,5 +1,6 @@
 import hmac
 import os
+import re
 import threading
 import time
 from fastapi import (
@@ -23,7 +24,8 @@ app = FastAPI(title="SecureWatch WebAPI")
 # Configuration is read from environment variables.
 DB_PATH = os.environ.get("WEBAPI_DB_PATH", "/app/data/state/securewatch.db")
 LOGS_DIR = os.environ.get("WEBAPI_LOGS_DIR", "/app/data/logs")
-API_KEY = os.environ.get("WEBAPI_API_KEY", "")  # empty disables protected API routes
+API_KEY = os.environ.get("WEBAPI_API_KEY", "")
+API_KEY_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 ALLOW_SCAN = os.environ.get("WEBAPI_ALLOW_SCAN", "0") == "1"
 INGEST_INTERVAL = int(os.environ.get("WEBAPI_INGEST_INTERVAL", "60"))  # seconds
 api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
@@ -33,6 +35,11 @@ def check_api_key(token: str | None) -> bool:
     if not API_KEY or token is None:
         return False
     return hmac.compare_digest(token.encode("utf-8"), API_KEY.encode("utf-8"))
+
+
+def validate_api_key_configuration() -> None:
+    if not API_KEY_PATTERN.fullmatch(API_KEY):
+        raise RuntimeError("WEBAPI_API_KEY must be 64 lowercase hexadecimal characters")
 
 
 def require_api_key(token: str | None = Security(api_key_header)) -> None:
@@ -204,6 +211,7 @@ def periodic_ingest():
 
 @app.on_event("startup")
 def startup_event():
+    validate_api_key_configuration()
     os.umask(0o077)
     conn = get_conn(DB_PATH)
     try:

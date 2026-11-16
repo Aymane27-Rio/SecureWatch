@@ -11,6 +11,7 @@ from fastapi.security import APIKeyHeader
 app = FastAPI(title="SecureWatch API")
 
 API_KEY = os.environ.get("WEBAPI_API_KEY", "")
+API_KEY_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 LOG_DIR = Path(os.environ.get("SECUREWATCH_LOG_DIR", "/app/data/logs"))
 api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
 
@@ -19,6 +20,11 @@ def check_api_key(token: str | None) -> bool:
     if not API_KEY or token is None:
         return False
     return hmac.compare_digest(token.encode("utf-8"), API_KEY.encode("utf-8"))
+
+
+def validate_api_key_configuration() -> None:
+    if not API_KEY_PATTERN.fullmatch(API_KEY):
+        raise RuntimeError("WEBAPI_API_KEY must be 64 lowercase hexadecimal characters")
 
 
 def require_api_key(token: str | None = Security(api_key_header)) -> None:
@@ -146,3 +152,8 @@ def get_report(report_id: str):
 
 
 app.include_router(protected_api)
+
+
+@app.on_event("startup")
+def validate_startup_configuration():
+    validate_api_key_configuration()
