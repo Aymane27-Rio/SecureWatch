@@ -300,7 +300,7 @@ class ReportIngestionTests(unittest.TestCase):
 class HostPortabilityTests(unittest.TestCase):
     @staticmethod
     def add_system_command_links(bin_dir):
-        for command in ("awk", "date", "hostname"):
+        for command in ("awk", "date", "hostname", "python3"):
             target = shutil.which(command)
             if target:
                 (bin_dir / command).symlink_to(target)
@@ -325,6 +325,7 @@ class HostPortabilityTests(unittest.TestCase):
             (
                 "dnf",
                 (
+                    "dnf install -y jq curl lsof net-tools inotify-tools util-linux hostname",
                     "dnf install -y python3 python3-pip",
                     "dnf install -y firewalld",
                 ),
@@ -332,6 +333,7 @@ class HostPortabilityTests(unittest.TestCase):
             (
                 "dnf5",
                 (
+                    "dnf5 install -y jq curl lsof net-tools inotify-tools util-linux hostname",
                     "dnf5 install -y python3 python3-pip",
                     "dnf5 install -y firewalld",
                 ),
@@ -370,22 +372,33 @@ class HostPortabilityTests(unittest.TestCase):
                 for expected_command in expected:
                     self.assertIn(expected_command, package_commands)
 
-    def run_update_check(self, manager, output, exit_code):
+    def run_update_check(self, manager, output, exit_code, dnf_version="4.21.0"):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             bin_dir = root / "bin"
             bin_dir.mkdir()
             self.add_system_command_links(bin_dir)
+            if manager == "dnf5" or (manager == "dnf" and dnf_version.startswith("5.")):
+                expected_args = "check-upgrade --json"
+            elif manager == "dnf":
+                expected_args = "check-update"
+            else:
+                expected_args = "list --upgradable"
             self.write_command(
                 bin_dir,
                 manager,
-                "#!/bin/bash\nprintf '%s\\n' \"$UPDATE_OUTPUT\"\n"
+                "#!/bin/bash\n"
+                'if [ "$1" = --version ]; then printf \'%s\\n\' "$DNF_VERSION"; exit 0; fi\n'
+                'if [ "$*" != "$EXPECTED_ARGS" ]; then echo "unexpected arguments: $*" >&2; exit 99; fi\n'
+                "printf '%s\\n' \"$UPDATE_OUTPUT\"\n"
                 'exit "$UPDATE_EXIT_CODE"\n',
             )
             env = {
                 "PATH": str(bin_dir),
                 "UPDATE_OUTPUT": output,
                 "UPDATE_EXIT_CODE": str(exit_code),
+                "DNF_VERSION": dnf_version,
+                "EXPECTED_ARGS": expected_args,
                 "LC_ALL": "C",
             }
             result = subprocess.run(
@@ -415,13 +428,18 @@ class HostPortabilityTests(unittest.TestCase):
             "alpha.x86_64 1.1 updates\nbeta.noarch 2.1 updates",
             100,
         )
-        dnf5_updates = self.run_update_check("dnf5", "gamma.aarch64 3.1 updates", 100)
+        dnf5_json = '{"Available Packages":[{"name":"gamma","arch":"aarch64"}]}'
+        dnf5_updates = self.run_update_check("dnf5", dnf5_json, 100)
+        dnf5_compat_updates = self.run_update_check(
+            "dnf", dnf5_json, 100, dnf_version="5.2.0"
+        )
         clean = self.run_update_check("dnf", "", 0)
         failure = self.run_update_check("dnf", "repository unavailable", 1)
 
         self.assertEqual(updates["severity"], 1)
         self.assertEqual(updates["data"], {"count": 2, "manager": "dnf"})
         self.assertEqual(dnf5_updates["data"], {"count": 1, "manager": "dnf5"})
+        self.assertEqual(dnf5_compat_updates["data"], {"count": 1, "manager": "dnf5"})
         self.assertEqual(clean["severity"], 0)
         self.assertEqual(clean["data"], {"count": 0, "manager": "dnf"})
         self.assertEqual(failure["severity"], 2)

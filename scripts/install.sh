@@ -18,7 +18,7 @@ elif command -v dnf >/dev/null 2>&1 || command -v dnf5 >/dev/null 2>&1; then
     dnf_command=dnf5
   fi
   # Fedora package names match the command names used by SecureWatch modules.
-  sudo "$dnf_command" install -y jq curl lsof net-tools inotify-tools util-linux
+  sudo "$dnf_command" install -y jq curl lsof net-tools inotify-tools util-linux hostname
   sudo "$dnf_command" install -y rkhunter aide nmap
   sudo "$dnf_command" install -y python3 python3-pip
   # Optional firewall service; installing it does not enable or start it.

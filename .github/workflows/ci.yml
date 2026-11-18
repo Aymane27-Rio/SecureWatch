@@ -10,6 +10,38 @@ permissions:
   contents: read
 
 jobs:
+  fedora-host-support:
+    runs-on: ubuntu-latest
+    container:
+      image: fedora:45@sha256:a7d72ba2745b100a3351087472e5ee7b2450af7cf331e7673007e3817612839c
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install sudo for the host installer
+        run: dnf install -y sudo
+
+      - name: Install SecureWatch host dependencies
+        run: bash scripts/install.sh
+
+      - name: Smoke-test package and firewall checks
+        run: |
+          bash modules/check_updates.sh > /tmp/securewatch-packages.json
+          bash modules/firewall_status.sh > /tmp/securewatch-firewall.json
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          packages = json.loads(Path("/tmp/securewatch-packages.json").read_text())
+          firewall = json.loads(Path("/tmp/securewatch-firewall.json").read_text())
+
+          assert packages["category"] == "packages", packages
+          assert packages["data"]["manager"] in {"dnf", "dnf5"}, packages
+          assert isinstance(packages["data"]["count"], int), packages
+          assert firewall["category"] == "firewall", firewall
+          assert firewall["data"]["firewalld_status"] in {"running", "inactive"}, firewall
+          PY
+
   build-and-test:
     runs-on: ubuntu-latest
     env:
