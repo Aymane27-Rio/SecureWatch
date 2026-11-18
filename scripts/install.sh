@@ -8,7 +8,7 @@ fi
 
 sudo apt update
 # Base utilities
-sudo apt install -y jq curl lsof net-tools inotify-tools
+sudo apt install -y jq curl lsof net-tools inotify-tools util-linux
 # Security tools
 sudo apt install -y rkhunter aide nmap
 

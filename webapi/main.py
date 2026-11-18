@@ -1,8 +1,20 @@
+import hmac
 import os
+import re
 import threading
 import time
-from fastapi import BackgroundTasks, FastAPI, Header, HTTPException, Query
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Depends,
+    FastAPI,
+    Header,
+    HTTPException,
+    Query,
+    Security,
+)
 from fastapi.responses import JSONResponse
+from fastapi.security import APIKeyHeader
 from pathlib import Path
 from .db import get_conn, init_db
 from .ingest import ingest_reports_from_dir
@@ -12,13 +24,30 @@ app = FastAPI(title="SecureWatch WebAPI")
 # Configuration is read from environment variables.
 DB_PATH = os.environ.get("WEBAPI_DB_PATH", "/app/data/state/securewatch.db")
 LOGS_DIR = os.environ.get("WEBAPI_LOGS_DIR", "/app/data/logs")
-API_KEY = os.environ.get("WEBAPI_API_KEY", "")  # empty disables write endpoints
+API_KEY = os.environ.get("WEBAPI_API_KEY", "")
+API_KEY_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 ALLOW_SCAN = os.environ.get("WEBAPI_ALLOW_SCAN", "0") == "1"
 INGEST_INTERVAL = int(os.environ.get("WEBAPI_INGEST_INTERVAL", "60"))  # seconds
+api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
 
 
 def check_api_key(token: str | None) -> bool:
-    return bool(API_KEY) and token == API_KEY
+    if not API_KEY or token is None:
+        return False
+    return hmac.compare_digest(token.encode("utf-8"), API_KEY.encode("utf-8"))
+
+
+def validate_api_key_configuration() -> None:
+    if not API_KEY_PATTERN.fullmatch(API_KEY):
+        raise RuntimeError("WEBAPI_API_KEY must be 64 lowercase hexadecimal characters")
+
+
+def require_api_key(token: str | None = Security(api_key_header)) -> None:
+    if not check_api_key(token):
+        raise HTTPException(status_code=401, detail="invalid api key")
+
+
+protected_api = APIRouter(dependencies=[Depends(require_api_key)])
 
 
 @app.get("/hello")
@@ -26,7 +55,7 @@ def hello():
     return {"message": "SecureWatch WebAPI is running"}
 
 
-@app.get("/reports")
+@protected_api.get("/reports")
 def list_reports():
     conn = get_conn(DB_PATH)
     cur = conn.cursor()
@@ -38,7 +67,7 @@ def list_reports():
     return {"reports": rows}
 
 
-@app.get("/reports/{report_id}")
+@protected_api.get("/reports/{report_id}")
 def get_report(report_id: str):
     conn = get_conn(DB_PATH)
     cur = conn.cursor()
@@ -59,7 +88,7 @@ def get_report(report_id: str):
     return {"report": dict(r), "events": events}
 
 
-@app.get("/events")
+@protected_api.get("/events")
 def query_events(
     severity: int | None = None,
     category: str | None = None,
@@ -87,7 +116,7 @@ def query_events(
     return {"count": len(rows), "events": rows}
 
 
-@app.get("/events/{eid}")
+@protected_api.get("/events/{eid}")
 def get_event(eid: int):
     conn = get_conn(DB_PATH)
     cur = conn.cursor()
@@ -102,7 +131,7 @@ def get_event(eid: int):
     return dict(r)
 
 
-@app.get("/metrics")
+@protected_api.get("/metrics")
 def metrics():
     conn = get_conn(DB_PATH)
     cur = conn.cursor()
@@ -126,7 +155,7 @@ def metrics():
     }
 
 
-@app.post("/ingest")
+@protected_api.post("/ingest")
 def manual_ingest(
     background: BackgroundTasks,
     x_api_key: str | None = Header(default=None),
@@ -138,7 +167,7 @@ def manual_ingest(
     return JSONResponse({"status": "ingest started"})
 
 
-@app.post("/scan")
+@protected_api.post("/scan")
 def trigger_scan(x_api_key: str = Header(None)):
     if not check_api_key(x_api_key):
         raise HTTPException(status_code=401, detail="invalid api key")
@@ -167,6 +196,9 @@ def trigger_scan(x_api_key: str = Header(None)):
     return {"status": "scan triggered"}
 
 
+app.include_router(protected_api)
+
+
 # background ingestion thread
 def periodic_ingest():
     while True:
@@ -179,6 +211,8 @@ def periodic_ingest():
 
 @app.on_event("startup")
 def startup_event():
+    validate_api_key_configuration()
+    os.umask(0o077)
     conn = get_conn(DB_PATH)
     try:
         init_db(conn)

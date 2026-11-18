@@ -15,9 +15,9 @@ export default function App(){
       .catch(e=>{ console.error(e); setError('Failed to load reports') })
   },[])
   return (
-    <div style={{padding:20,fontFamily:'system-ui,Segoe UI,Roboto,Arial'}}>
+    <div className="dashboard">
       <h1>SecureWatch Dashboard</h1>
-      {error && <p style={{color:'#b00'}}>{error}</p>}
+      {error && <p className="error">{error}</p>}
       {metrics ?
         <div>
           <p><strong>Last run:</strong> {metrics.last_run || 'N/A'}</p>

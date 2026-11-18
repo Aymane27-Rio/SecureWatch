@@ -8,8 +8,9 @@ DEFAULT_DB = "/app/data/state/securewatch.db"
 def get_conn(db_path=None):
     db_path = db_path or os.environ.get("WEBAPI_DB_PATH", DEFAULT_DB)
     db_dir = Path(db_path).parent
-    db_dir.mkdir(parents=True, exist_ok=True)
+    db_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
     conn = sqlite3.connect(str(db_path), check_same_thread=False)
+    os.chmod(db_path, 0o600)
     conn.row_factory = sqlite3.Row
     return conn
 

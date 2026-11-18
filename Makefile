@@ -29,7 +29,7 @@ run:
 	bash scripts/securewatch.sh
 
 report:
-	$(PYTHON) python/report_generator.py
+	umask 077; $(PYTHON) python/report_generator.py
 
 exporter:
 	$(PYTHON) python/exporters/securewatch_exporter.py

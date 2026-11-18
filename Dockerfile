@@ -1,4 +1,4 @@
-FROM python:3.11-slim
+FROM python:3.11.18-slim-trixie
 
 # Creating the app directory
 WORKDIR /app
@@ -7,8 +7,11 @@ WORKDIR /app
 COPY python/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copying the rest of the application code
-COPY . .
+# Copy only the files required by the scanner and exporter.
+COPY python/ ./python/
+COPY scripts/ ./scripts/
+COPY modules/ ./modules/
+COPY config/ ./config/
 
 # execution rights to scripts
 RUN chmod +x scripts/*.sh modules/*.sh

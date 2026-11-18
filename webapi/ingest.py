@@ -1,7 +1,10 @@
-import json
-from pathlib import Path
-from .db import get_conn, init_db
 import datetime
+import json
+import sqlite3
+from pathlib import Path
+
+from .db import get_conn, init_db
+from python.report_io import MAX_REPORT_BYTES, read_report, validate_events
 
 
 def ingest_reports_from_dir(logs_dir="/app/data/logs", db_path=None, dry_run=False):
@@ -13,49 +16,60 @@ def ingest_reports_from_dir(logs_dir="/app/data/logs", db_path=None, dry_run=Fal
     inserted_reports = 0
     inserted_events = 0
 
-    for path in sorted(logs_dir.glob("events_*.json")):
-        report_id = path.name.removeprefix("events_").removesuffix(".json")
-        # skip if report already ingested
-        cur.execute("SELECT 1 FROM reports WHERE report_id=? LIMIT 1", (report_id,))
-        if cur.fetchone():
-            continue
+    try:
+        for path in sorted(logs_dir.glob("events_*.json")):
+            if path.is_symlink() or not path.is_file():
+                continue
 
-        try:
-            with path.open("r", encoding="utf-8") as f:
-                events = json.load(f)
-        except Exception as e:
-            print(f"Failed to read {path}: {e}")
-            continue
+            report_id = path.name.removeprefix("events_").removesuffix(".json")
+            cur.execute("SELECT 1 FROM reports WHERE report_id=? LIMIT 1", (report_id,))
+            if cur.fetchone():
+                continue
 
-        if not isinstance(events, list) or any(
-            not isinstance(event, dict) for event in events
-        ):
-            print(f"Invalid report data in {path}: expected a list of event objects")
-            continue
-
-        total = len(events)
-        now = datetime.datetime.now(datetime.timezone.utc).isoformat()
-        if not dry_run:
-            cur.execute(
-                "INSERT INTO reports (report_id, filename, ts, total, created_at) VALUES (?, ?, ?, ?, ?)",
-                (report_id, path.name, report_id, total, now),
-            )
-            for e in events:
-                cur.execute(
-                    "INSERT INTO events (report_id, ts, host, category, severity, summary, data) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                    (
-                        report_id,
-                        e.get("ts"),
-                        e.get("host"),
-                        e.get("category"),
-                        int(e.get("severity", 0)),
-                        e.get("summary"),
-                        json.dumps(e.get("data", {})),
-                    ),
+            try:
+                normalized_events = validate_events(
+                    read_report(path, max_bytes=MAX_REPORT_BYTES)
                 )
-            conn.commit()
-        inserted_reports += 1
-        inserted_events += total
+            except (OSError, UnicodeDecodeError, ValueError) as error:
+                print(f"Skipping invalid report {path.name}: {error}")
+                continue
 
-    conn.close()
+            total = len(normalized_events)
+            now = datetime.datetime.now(datetime.timezone.utc).isoformat()
+            if not dry_run:
+                try:
+                    with conn:
+                        cur.execute(
+                            "INSERT OR IGNORE INTO reports "
+                            "(report_id, filename, ts, total, created_at) "
+                            "VALUES (?, ?, ?, ?, ?)",
+                            (report_id, path.name, report_id, total, now),
+                        )
+                        if cur.rowcount == 0:
+                            continue
+                        cur.executemany(
+                            "INSERT INTO events "
+                            "(report_id, ts, host, category, severity, summary, data) "
+                            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                            [
+                                (
+                                    report_id,
+                                    event.get("ts"),
+                                    event.get("host"),
+                                    event.get("category"),
+                                    event["severity"],
+                                    event.get("summary"),
+                                    json.dumps(event["data"], allow_nan=False),
+                                )
+                                for event in normalized_events
+                            ],
+                        )
+                except sqlite3.Error as error:
+                    print(f"Failed to store report {path.name}: {error}")
+                    continue
+            inserted_reports += 1
+            inserted_events += total
+    finally:
+        conn.close()
+
     return {"reports": inserted_reports, "events": inserted_events}
