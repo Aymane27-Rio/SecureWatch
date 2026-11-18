@@ -599,8 +599,11 @@ class ShellScriptTests(unittest.TestCase):
                 "file_integrity.sh",
             )
             for module_name in module_names:
+                module_body = 'printf \'{"severity":0,"category":"test"}\\n\'\n'
+                if module_name == "check_ports.sh":
+                    module_body += "printf 'simulated module failure\\n' >&2\nexit 7\n"
                 (root / "modules" / module_name).write_text(
-                    'printf \'{"severity":0,"category":"test"}\\n\'\n',
+                    module_body,
                     encoding="utf-8",
                 )
 
@@ -608,6 +611,10 @@ class ShellScriptTests(unittest.TestCase):
                 "import sys\n"
                 "out = sys.argv[sys.argv.index('--out') + 1]\n"
                 "open(out, 'w').close()\n",
+                encoding="utf-8",
+            )
+            (root / "python" / "scan_runner.py").write_text(
+                (ROOT / "python" / "scan_runner.py").read_text(encoding="utf-8"),
                 encoding="utf-8",
             )
             (root / "python" / "report_generator.py").write_text(
@@ -671,13 +678,35 @@ class ShellScriptTests(unittest.TestCase):
 
             self.assertEqual(rejected_run.returncode, 75)
             self.assertIn("A SecureWatch scan is already running", rejected_run.stderr)
+            scan_results = []
             for _ in range(2):
-                subprocess.run(["bash", str(script)], cwd=root, env=env, check=True)
+                scan_results.append(
+                    subprocess.run(
+                        ["bash", str(script)],
+                        cwd=root,
+                        env=env,
+                        capture_output=True,
+                        check=True,
+                        text=True,
+                    )
+                )
 
             event_files = list(logs_dir.glob("events_*.json"))
             report_files = list(reports_dir.glob("report_*.html"))
             self.assertEqual(len(event_files), 2)
             self.assertEqual(len(report_files), 2)
+            for scan_result in scan_results:
+                self.assertIn("Audit checks failed: 1", scan_result.stdout)
+            for event_file in event_files:
+                events = json.loads(event_file.read_text(encoding="utf-8"))
+                failures = [
+                    event
+                    for event in events
+                    if event.get("summary") == "Audit check failed: check_ports.sh"
+                ]
+                self.assertEqual(len(failures), 1)
+                self.assertEqual(failures[0]["severity"], 2)
+                self.assertEqual(failures[0]["data"]["exit_code"], 7)
             self.assertEqual(
                 {path.stat().st_mode & 0o777 for path in event_files}, {0o600}
             )

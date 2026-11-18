@@ -5,6 +5,7 @@ SecureWatch is a modular Linux security monitoring toolkit. It runs local checks
 ## Features
 
 - Bash checks for accounts, listening ports, firewall state, package updates, AIDE, and rkhunter.
+- Scan failures and malformed check output are recorded in reports and called out in the terminal, so incomplete coverage is visible.
 - SSH and sudo anomaly parsing with structured JSON events.
 - HTML reports and a FastAPI service that stores reports and events in SQLite.
 - React dashboard, Prometheus exporter, and starter Grafana dashboard.
@@ -56,7 +57,7 @@ docker compose --profile alternate-api up --build -d alternate-api
 
 This starts only the alternate API service. It uses the same local API key, reads `data/logs` read-only, and binds to loopback on port 8001.
 
-Run a scan from the repository root with `make run`. Reports and logs appear under `data/`; the API imports new event files automatically. A few checks use `sudo` for full visibility. The API requires the configured `X-API-Key` for report and event routes, so keep the Compose ports loopback-only. For remote dashboard access, use a host-based reverse proxy with TLS and authentication, targeting `127.0.0.1:3000`; do not publish the API, Prometheus, Grafana, or exporter ports directly.
+Run a scan from the repository root with `make run` or `python3 bin/securewatch scan`. Reports and logs appear under `data/`; the API imports new event files automatically. A few checks use `sudo` for full visibility. The API requires the configured `X-API-Key` for report and event routes, so keep the Compose ports loopback-only. For remote dashboard access, use a host-based reverse proxy with TLS and authentication, targeting `127.0.0.1:3000`; do not publish the API, Prometheus, Grafana, or exporter ports directly.
 
 Both API images and the metrics exporter run as the configured host UID/GID without Linux capabilities. The primary API container has a read-only root filesystem and can only read `data/logs` and write its database under `data/state`; the optional alternate API also has a read-only root filesystem and only reads `data/logs`. The dashboard NGINX service runs unprivileged. Prometheus and Grafana also run with a read-only root filesystem and no Linux capabilities. Prometheus samples and Grafana configuration persist in named Docker volumes. Container base images and monitoring services use explicit upstream version tags; review vendor security updates and upgrade those tags deliberately.
 
@@ -69,9 +70,25 @@ Host scans are supported on Debian, Ubuntu, Kali, and Fedora. The dependency ins
 ```bash
 make install-deps
 make venv
+python3 bin/securewatch --help
 make run
 make exporter
 ```
+
+The source CLI supports `scan`, `report`, `--help`, and `--version`. `report` renders the latest scan as HTML; pass `--input PATH` or `--output PATH` to select files explicitly. Source runs store private reports under the repository's `data/` directory. The web dashboard remains optional and can still be run with Docker Compose.
+
+## Installable packages
+
+SecureWatch packages provide the local audit CLI and optional systemd timer; they do not install or start the web dashboard. Debian-family packages are built with `dpkg-deb`, and Fedora packages with `rpmbuild`:
+
+```bash
+make package-deb VERSION=0.3.0 OUTPUT=dist
+make package-rpm VERSION=0.3.0 OUTPUT=dist
+```
+
+After a package release is published, install the downloaded asset with your system package manager. For the planned `v0.3.0` release, the commands are `sudo apt install ./securewatch_0.3.0_all.deb` on Debian or Ubuntu and `sudo dnf install ./securewatch-0.3.0-1.noarch.rpm` on Fedora. The Debian package requires Python 3.11 or later. Run `sudo securewatch scan` for a complete host audit. Reports and scan data are stored with owner-only permissions under `/var/lib/securewatch`. The hourly timer is opt-in: enable it with `sudo systemctl enable --now securewatch.timer`. Package upgrades preserve `/etc/securewatch/securewatch.conf` and generated reports. Package removal also leaves generated reports and scan data in place.
+
+The Debian package recommends AIDE, rkhunter, Nmap, and network utilities for optional checks. Fedora's package recommends the equivalent Fedora packages. Missing optional tools are reported in scan output.
 
 To run the API locally, install its dependencies and start it from the repository root:
 
@@ -104,7 +121,7 @@ make venv
 make test
 ```
 
-These tests use temporary logs, reports, and databases. They do not run a scan against the host. The GitHub Actions workflow also checks Python lint and formatting, validates the Compose configuration, and builds the dashboard.
+The unit tests use temporary logs, reports, and databases; they do not scan the development machine. CI also builds packages twice to check repeatability and install-tests the Debian package on Debian and Ubuntu and the RPM on Fedora, including a scan and HTML report in each environment.
 
 To run the actual host scan manually, use `make run`; it reads system state and writes generated files under `data/`.
 
@@ -112,11 +129,14 @@ To run the actual host scan manually, use `make run`; it reads system state and 
 
 Release versions use semantic version tags. Use a suffix for pre-releases, for example `v0.2.0-alpha.1` or `v0.2.0-rc.1`; use `v0.2.0` for a stable release.
 
-Pushing a `v*` tag runs the release workflow. It validates the version and creates a GitHub draft with generated release notes. Tags containing a suffix are marked as pre-releases. Review and publish the draft from the GitHub Releases page.
+Pushing a `v*` tag runs the release workflow. The tag must match `VERSION`; the workflow rebuilds and install-tests both packages, generates checksums, and creates a GitHub draft with install instructions and release notes. Tags containing a suffix are marked as pre-releases; a tag such as `v0.3.0` creates a stable release draft. Review the draft and publish it from the GitHub Releases page.
 
 ## Project layout
 
+- `bin/securewatch` — user-facing CLI for scans and HTML reports.
+- `VERSION` — version embedded in package builds and checked against release tags.
 - `scripts/securewatch.sh` — runs checks, aggregates events, and generates reports.
+- `packaging/` — Debian/RPM build definitions and installed-package smoke checks.
 - `modules/` — individual Linux checks.
 - `python/log_parser.py` — parses authentication logs.
 - `python/report_generator.py` — creates the HTML report.

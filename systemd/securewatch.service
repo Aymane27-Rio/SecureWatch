@@ -1,14 +1,19 @@
 [Unit]
-Description=SecureWatch One-off Scan
+Description=SecureWatch One-off Security Audit
 Wants=network-online.target
 After=network-online.target
 
 [Service]
 Type=oneshot
-WorkingDirectory=/opt/securewatch
-ExecStart=/bin/bash /opt/securewatch/scripts/securewatch.sh
+WorkingDirectory=/var/lib/securewatch
+Environment=SECUREWATCH_CONFIG=/etc/securewatch/securewatch.conf
+ExecStart=/usr/bin/securewatch scan
 User=root
 UMask=0077
+PrivateTmp=true
+ProtectHome=read-only
+ProtectSystem=full
+NoNewPrivileges=true
 
 [Install]
 WantedBy=multi-user.target

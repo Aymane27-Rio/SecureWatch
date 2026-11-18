@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [ main, feat-web ]
+    branches: [ main, feat-web, 'milestone/**' ]
   pull_request:
     branches: [ main ]
 
@@ -42,6 +42,86 @@ jobs:
           assert firewall["data"]["firewalld_status"] in {"running", "inactive"}, firewall
           PY
 
+      - name: Install RPM build tools
+        run: dnf install -y rpm-build
+
+      - name: Leave optional scanners out of package smoke test
+        run: dnf remove -y aide rkhunter
+
+      - name: Build and install the Fedora package
+        run: |
+          version="$(cat VERSION)"
+          bash packaging/build-rpm.sh "$version" /tmp/securewatch-rpms-first
+          bash packaging/build-rpm.sh "$version" /tmp/securewatch-rpms-second
+          rpm_file="$(find /tmp/securewatch-rpms-first -maxdepth 1 -type f -name 'securewatch-*.rpm' -print -quit)"
+          rpm_second="$(find /tmp/securewatch-rpms-second -maxdepth 1 -type f -name 'securewatch-*.rpm' -print -quit)"
+          test -n "$rpm_file"
+          test -n "$rpm_second"
+          cmp -- "$rpm_file" "$rpm_second"
+          dnf install -y --setopt=install_weak_deps=False "$rpm_file"
+          bash packaging/smoke-test-installed.sh "$version"
+          dnf remove -y securewatch
+          test -n "$(find /var/lib/securewatch/logs -maxdepth 1 -type f -name 'events_*.json' -print -quit)"
+
+  debian-package:
+    runs-on: ubuntu-latest
+    container:
+      image: debian:trixie@sha256:9c6e381421d0f48d1b8133e573f33c185ee16cbf505eda9c4a8a4791b25ea8a6
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Build Debian package
+        run: |
+          version="$(cat VERSION)"
+          bash packaging/build-deb.sh "$version" /tmp/securewatch-debs-first
+          bash packaging/build-deb.sh "$version" /tmp/securewatch-debs-second
+          deb_file="$(find /tmp/securewatch-debs-first -maxdepth 1 -type f -name 'securewatch_*.deb' -print -quit)"
+          deb_second="$(find /tmp/securewatch-debs-second -maxdepth 1 -type f -name 'securewatch_*.deb' -print -quit)"
+          test -n "$deb_file"
+          test -n "$deb_second"
+          cmp -- "$deb_file" "$deb_second"
+          mkdir -p /tmp/securewatch-debs
+          cp "$deb_file" /tmp/securewatch-debs/
+
+      - name: Install and exercise Debian package
+        run: |
+          apt-get update
+          deb_file="$(find /tmp/securewatch-debs -maxdepth 1 -type f -name 'securewatch_*.deb' -print -quit)"
+          test -n "$deb_file"
+          apt-get install -y --no-install-recommends "$deb_file"
+          bash packaging/smoke-test-installed.sh "$(cat VERSION)"
+          apt-get remove -y securewatch
+          test -r /etc/securewatch/securewatch.conf
+          test -n "$(find /var/lib/securewatch/logs -maxdepth 1 -type f -name 'events_*.json' -print -quit)"
+
+  ubuntu-package:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Build the Debian package twice
+        run: |
+          version="$(cat VERSION)"
+          bash packaging/build-deb.sh "$version" /tmp/securewatch-debs-first
+          bash packaging/build-deb.sh "$version" /tmp/securewatch-debs-second
+          deb_file="$(find /tmp/securewatch-debs-first -maxdepth 1 -type f -name 'securewatch_*.deb' -print -quit)"
+          deb_second="$(find /tmp/securewatch-debs-second -maxdepth 1 -type f -name 'securewatch_*.deb' -print -quit)"
+          test -n "$deb_file"
+          test -n "$deb_second"
+          cmp -- "$deb_file" "$deb_second"
+
+      - name: Install and exercise the package on Ubuntu
+        run: |
+          version="$(cat VERSION)"
+          deb_file="$(find /tmp/securewatch-debs-first -maxdepth 1 -type f -name 'securewatch_*.deb' -print -quit)"
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends "$deb_file"
+          sudo bash packaging/smoke-test-installed.sh "$version"
+          sudo apt-get remove -y securewatch
+          sudo test -n "$(sudo find /var/lib/securewatch/logs -maxdepth 1 -type f -name 'events_*.json' -print -quit)"
+
   build-and-test:
     runs-on: ubuntu-latest
     env:
@@ -62,16 +142,21 @@ jobs:
           pip install -r python/requirements.txt -r python/dev-requirements.txt -r webapi/requirements.txt
 
       - name: Lint (flake8)
-        run: flake8 python/ scripts/ webapi/ backend/ tests/
+        run: flake8 python/ scripts/ webapi/ backend/ tests/ bin/securewatch
 
       - name: Format check (black)
-        run: black --check python/ scripts/ webapi/ backend/ tests/
+        run: black --check python/ scripts/ webapi/ backend/ tests/ bin/securewatch
 
       - name: Run tests
         run: python -m unittest discover -s tests -v
 
       - name: Compile Python modules
-        run: python -m compileall -q python webapi backend
+        run: |
+          python -m compileall -q python webapi backend
+          python -m py_compile bin/securewatch
+
+      - name: Validate shell scripts
+        run: bash -n scripts/securewatch.sh modules/*.sh packaging/*.sh
 
       - name: Validate Compose config
         run: docker compose config --quiet

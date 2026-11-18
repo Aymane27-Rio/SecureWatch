@@ -4,16 +4,19 @@ VENV := .venv
 PIP := $(VENV)/bin/pip
 PYTHON := $(VENV)/bin/python
 
-.PHONY: help install-deps venv run report exporter test enable-systemd clean
+.PHONY: help install-deps venv cli run report exporter test package-deb package-rpm enable-systemd clean
 
 help:
 	@echo "Targets:"
 	@echo "  install-deps   - Install system packages via apt (Debian/Ubuntu/Kali) or dnf (Fedora)"
 	@echo "  venv           - Create Python venv and install requirements"
+	@echo "  cli            - Show SecureWatch command help"
 	@echo "  run            - Run SecureWatch one-off scan"
-	@echo "  report         - Regenerate HTML report from latest JSON"
+	@echo "  report         - Render the latest scan as HTML"
 	@echo "  exporter       - Run Prometheus exporter on :9109"
 	@echo "  test           - Run the deterministic unit test suite"
+	@echo "  package-deb    - Build a Debian package (VERSION=... OUTPUT=dist)"
+	@echo "  package-rpm    - Build a Fedora RPM (requires rpmbuild)"
 	@echo "  enable-systemd - Install and enable systemd timer (hourly)"
 	@echo "  clean          - Remove venv and generated artifacts"
 
@@ -25,11 +28,14 @@ venv:
 	$(PIP) install --upgrade pip
 	$(PIP) install -r python/requirements.txt -r webapi/requirements.txt
 
+cli:
+	python3 bin/securewatch --help
+
 run:
-	bash scripts/securewatch.sh
+	python3 bin/securewatch scan
 
 report:
-	umask 077; $(PYTHON) python/report_generator.py
+	python3 bin/securewatch report
 
 exporter:
 	$(PYTHON) python/exporters/securewatch_exporter.py
@@ -37,15 +43,19 @@ exporter:
 test:
 	$(PYTHON) -m unittest discover -s tests -v
 
+VERSION ?= $(shell cat VERSION)
+OUTPUT ?= dist
+
+package-deb:
+	bash packaging/build-deb.sh "$(VERSION)" "$(OUTPUT)"
+
+package-rpm:
+	bash packaging/build-rpm.sh "$(VERSION)" "$(OUTPUT)"
+
 enable-systemd:
-	@echo "Installing systemd units..."
-	@sudo cp systemd/securewatch.service /etc/systemd/system/securewatch.service
-	@sudo cp systemd/securewatch.timer /etc/systemd/system/securewatch.timer
+	@echo "This target requires the SecureWatch system package to be installed."
 	@sudo systemctl daemon-reload
 	@sudo systemctl enable --now securewatch.timer
-	@echo "Exporter service is optional; edit path then enable if desired:"
-	@echo "  sudo cp systemd/securewatch-exporter.service /etc/systemd/system/"
-	@echo "  sudo systemctl daemon-reload && sudo systemctl enable --now securewatch-exporter.service"
 
 clean:
-	rm -rf $(VENV) data/reports/*.html data/logs/*.json data/logs/*.ndjson || true
+	rm -rf $(VENV) data/reports/*.html data/logs/*.json data/logs/*.ndjson dist || true

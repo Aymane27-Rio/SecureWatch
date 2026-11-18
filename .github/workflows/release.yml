@@ -27,16 +27,21 @@ jobs:
         run: pip install -r python/requirements.txt -r python/dev-requirements.txt -r webapi/requirements.txt
 
       - name: Lint Python
-        run: flake8 python/ scripts/ webapi/ backend/ tests/
+        run: flake8 python/ scripts/ webapi/ backend/ tests/ bin/securewatch
 
       - name: Check Python formatting
-        run: black --check python/ scripts/ webapi/ backend/ tests/
+        run: black --check python/ scripts/ webapi/ backend/ tests/ bin/securewatch
 
       - name: Run Python tests
         run: python -m unittest discover -s tests -v
 
       - name: Compile Python modules
-        run: python -m compileall -q python webapi backend
+        run: |
+          python -m compileall -q python webapi backend
+          python -m py_compile bin/securewatch
+
+      - name: Validate shell scripts
+        run: bash -n scripts/securewatch.sh modules/*.sh packaging/*.sh
 
       - name: Validate Compose config
         run: docker compose config --quiet
@@ -101,6 +106,9 @@ jobs:
     permissions:
       contents: write
     steps:
+      - name: Checkout tagged source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
       - name: Validate version tag
         env:
           RELEASE_TAG: ${{ github.ref_name }}
@@ -109,17 +117,65 @@ jobs:
             echo "Expected a semantic version tag such as v0.1.0 or v0.2.0-rc.1"
             exit 1
           fi
+          if [[ "${RELEASE_TAG#v}" != "$(cat VERSION)" ]]; then
+            echo "The release tag must match the version in VERSION."
+            exit 1
+          fi
+
+      - name: Build and install-test the Debian package
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          version="${RELEASE_TAG#v}"
+          package_dir="$RUNNER_TEMP/securewatch-release-packages"
+          mkdir -p "$package_dir"
+          bash packaging/build-deb.sh "$version" "$package_dir"
+          docker run --rm --network host \
+            --volume "$package_dir:/packages:ro" \
+            --volume "$GITHUB_WORKSPACE/packaging/smoke-test-installed.sh:/tmp/smoke-test-installed.sh:ro" \
+            --env SECUREWATCH_RELEASE_VERSION="$version" \
+            debian:trixie@sha256:9c6e381421d0f48d1b8133e573f33c185ee16cbf505eda9c4a8a4791b25ea8a6 \
+            bash -lc 'apt-get update >/tmp/apt-update.log 2>&1 && deb_file="$(find /packages -maxdepth 1 -type f -name "securewatch_*.deb" -print -quit)" && apt-get install -y --no-install-recommends "$deb_file" >/tmp/apt-install.log 2>&1 && bash /tmp/smoke-test-installed.sh "$SECUREWATCH_RELEASE_VERSION" || { tail -n 80 /tmp/apt-update.log; tail -n 80 /tmp/apt-install.log; exit 1; }'
+
+      - name: Build and install-test the Fedora RPM
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          version="${RELEASE_TAG#v}"
+          source_date_epoch="$(git log -1 --format=%ct)"
+          package_dir="$RUNNER_TEMP/securewatch-release-packages"
+          docker run --rm --network host \
+            --volume "$GITHUB_WORKSPACE:/workspace:ro" \
+            --volume "$package_dir:/packages" \
+            --env SECUREWATCH_RELEASE_VERSION="$version" \
+            --env SOURCE_DATE_EPOCH="$source_date_epoch" \
+            fedora:45@sha256:a7d72ba2745b100a3351087472e5ee7b2450af7cf331e7673007e3817612839c \
+            bash -lc 'dnf install -y rpm-build >/tmp/rpm-build-install.log 2>&1 && bash /workspace/packaging/build-rpm.sh "$SECUREWATCH_RELEASE_VERSION" /packages >/tmp/rpm-build.log 2>&1 && rpm_file="$(find /packages -maxdepth 1 -type f -name "securewatch-*.rpm" -print -quit)" && dnf install -y --setopt=install_weak_deps=False "$rpm_file" >/tmp/rpm-install.log 2>&1 && bash /workspace/packaging/smoke-test-installed.sh "$SECUREWATCH_RELEASE_VERSION" || { tail -n 80 /tmp/rpm-build-install.log; tail -n 80 /tmp/rpm-build.log; tail -n 80 /tmp/rpm-install.log; exit 1; }'
+
+      - name: Prepare release notes and package checksums
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          version="${RELEASE_TAG#v}"
+          sed "s/@VERSION@/$version/g" packaging/release-notes.md > "$RUNNER_TEMP/securewatch-release-notes.md"
+          cd "$RUNNER_TEMP/securewatch-release-packages"
+          sha256sum securewatch_*.deb securewatch-*.rpm > SHA256SUMS
 
       - name: Create draft release
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_NOTES: ${{ runner.temp }}/securewatch-release-notes.md
+          PACKAGE_DIR: ${{ runner.temp }}/securewatch-release-packages
         run: |
-          release_flags=(--draft --generate-notes)
+          release_flags=(--draft --notes-file "$RELEASE_NOTES")
           if [[ "$RELEASE_TAG" == *-* ]]; then
             release_flags+=(--prerelease)
           fi
           gh release create "$RELEASE_TAG" \
-            --title "$RELEASE_TAG" \
-            "${release_flags[@]}"
+            --title "SecureWatch ${RELEASE_TAG#v}" \
+            "${release_flags[@]}" \
+            "$PACKAGE_DIR"/securewatch_*.deb \
+            "$PACKAGE_DIR"/securewatch-*.rpm \
+            "$PACKAGE_DIR/SHA256SUMS"

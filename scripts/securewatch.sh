@@ -4,9 +4,15 @@ umask 077
 
 HERE="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 ROOT="$( dirname "$HERE" )"
+cd "$ROOT"
 
 # Load config
-source "$ROOT/config/securewatch.conf"
+CONFIG_FILE="${SECUREWATCH_CONFIG:-$ROOT/config/securewatch.conf}"
+if [[ ! -r "$CONFIG_FILE" ]]; then
+  echo "SecureWatch configuration is not readable: $CONFIG_FILE" >&2
+  exit 1
+fi
+source "$CONFIG_FILE"
 
 mkdir -p "$LOG_DIR" "$REPORT_DIR" "$STATE_DIR"
 
@@ -27,34 +33,13 @@ timestamp="$(date +%Y%m%d_%H%M%S)"
 run_dir="$(mktemp -d "$STATE_DIR/run_${timestamp}.XXXXXX")"
 run_id="${run_dir##*/run_}"
 
-# Temporary NDJSON file for this run
-events_file="$run_dir/events.ndjson"
-
-# Run modules (each module writes NDJSON entries or echoes JSON we capture)
-echo "[*] Running modules..."
-
-bash "$ROOT/modules/audit_users.sh"   2>/dev/null >> "$events_file" || true
-bash "$ROOT/modules/check_ports.sh"   2>/dev/null >> "$events_file" || true
-bash "$ROOT/modules/firewall_status.sh" 2>/dev/null >> "$events_file" || true
-bash "$ROOT/modules/check_updates.sh" 2>/dev/null >> "$events_file" || true
-bash "$ROOT/modules/rkhunter_run.sh"  2>/dev/null >> "$events_file" || true
-bash "$ROOT/modules/aide_check.sh"    2>/dev/null >> "$events_file" || true
-bash "$ROOT/modules/file_integrity.sh" 2>/dev/null >> "$events_file" || true
-
-# paarse system logs for suspicious activity (SSH brute force and sudo anomalies)
-if command -v python3 >/dev/null 2>&1; then
-  python3 "$ROOT/python/log_parser.py" --threshold "${SSH_FAILED_THRESHOLD}" --out "$run_dir/log_anomalies.ndjson" || true
-  [ -s "$run_dir/log_anomalies.ndjson" ] && cat "$run_dir/log_anomalies.ndjson" >> "$events_file"
-fi
-
-# aggregate → stable JSON (array)
 out_json="$LOG_DIR/events_${run_id}.json"
-if command -v jq >/dev/null 2>&1; then
-  jq -s '[.[]]' "$events_file" > "$out_json"
-else
-  # Fallback: wrap lines in array
-  echo "[" > "$out_json"; paste -sd, "$events_file" >> "$out_json"; echo "]" >> "$out_json"
-fi
+echo "[*] Running modules..."
+python3 "$ROOT/python/scan_runner.py" \
+  --root "$ROOT" \
+  --work-dir "$run_dir" \
+  --output "$out_json" \
+  --ssh-threshold "$SSH_FAILED_THRESHOLD"
 echo "[*] Wrote events: $out_json"
 if [[ "$EUID" -eq 0 && -f "$out_json" ]]; then
   chown --reference="$LOG_DIR" -- "$out_json"
@@ -69,8 +54,46 @@ if command -v python3 >/dev/null 2>&1; then
   fi
 fi
 
+# Report incomplete checks to the interactive operator as well as in the report.
+audit_failure_count=$(python3 - "$out_json" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as report:
+    events = json.load(report)
+print(
+    sum(
+        1
+        for event in events
+        if isinstance(event, dict)
+        and event.get("category") == "audit"
+        and str(event.get("summary", "")).startswith("Audit check failed:")
+    )
+)
+PY
+)
+if [ "$audit_failure_count" -gt 0 ]; then
+  echo "[!] Audit checks failed: $audit_failure_count; review $out_json"
+fi
+
 # Alert on critical findings (severity >= 3)
-critical_count=$(jq '[.[] | select(.severity >= 3)] | length' "$out_json" 2>/dev/null || echo "0")
+critical_count=$(python3 - "$out_json" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as report:
+    events = json.load(report)
+print(
+    sum(
+        1
+        for event in events
+        if isinstance(event, dict)
+        and isinstance(event.get("severity"), int)
+        and event["severity"] >= 3
+    )
+)
+PY
+)
 if [ "$critical_count" -gt 0 ]; then
   echo "[!] Critical findings: $critical_count"
   bash "$ROOT/scripts/notify.sh" "$out_json" "$critical_count" || true

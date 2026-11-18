@@ -1,0 +1,130 @@
+#!/usr/bin/env python3
+"""User-facing command line for SecureWatch host scans."""
+
+import argparse
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+INSTALLED_ROOT = Path("/usr/lib/securewatch")
+
+
+def application_root():
+    source_root = Path(__file__).resolve().parents[1]
+    if (source_root / "scripts" / "securewatch.sh").is_file():
+        return source_root
+    if (INSTALLED_ROOT / "scripts" / "securewatch.sh").is_file():
+        return INSTALLED_ROOT
+    raise RuntimeError("could not locate SecureWatch application files")
+
+
+def command_environment(root):
+    env = os.environ.copy()
+    if root.resolve() == INSTALLED_ROOT:
+        env.setdefault("SECUREWATCH_CONFIG", "/etc/securewatch/securewatch.conf")
+    return env
+
+
+def configured_directories(root, env):
+    config = env.get("SECUREWATCH_CONFIG", str(root / "config/securewatch.conf"))
+    script = 'cd -- "$1"; source "$2"; printf "%s\\0%s\\0" "$LOG_DIR" "$REPORT_DIR"'
+    result = subprocess.run(
+        ["bash", "-c", script, "securewatch", str(root), config],
+        check=False,
+        capture_output=True,
+        cwd=root,
+        env=env,
+    )
+    if result.returncode != 0:
+        message = result.stderr.decode("utf-8", errors="replace").strip()
+        raise RuntimeError(message or "could not load SecureWatch configuration")
+    log_dir, report_dir, *_ = result.stdout.decode("utf-8").split("\0")
+    directories = [Path(log_dir), Path(report_dir)]
+    return tuple(path if path.is_absolute() else root / path for path in directories)
+
+
+def latest_events(log_dir):
+    candidates = list(log_dir.glob("events_*.json"))
+    if not candidates:
+        raise FileNotFoundError(
+            f"no scan reports found in {log_dir}; run 'securewatch scan' first"
+        )
+    return max(candidates, key=lambda path: path.stat().st_mtime_ns)
+
+
+def make_parser(version):
+    parser = argparse.ArgumentParser(
+        prog="securewatch",
+        description="Run local Linux security audits and create private reports.",
+    )
+    parser.add_argument("--version", action="version", version=f"%(prog)s {version}")
+    subparsers = parser.add_subparsers(dest="command")
+    subparsers.add_parser("scan", help="run the configured local security checks")
+    report_parser = subparsers.add_parser(
+        "report", help="render the latest scan as HTML, or select an input report"
+    )
+    report_parser.add_argument("--input", type=Path, help="JSON event report to render")
+    report_parser.add_argument("--output", type=Path, help="HTML output path")
+    return parser
+
+
+def main(argv=None):
+    try:
+        root = application_root()
+        version = (root / "VERSION").read_text(encoding="utf-8").strip()
+        env = command_environment(root)
+    except (OSError, RuntimeError) as error:
+        print(f"securewatch: {error}", file=sys.stderr)
+        return 1
+
+    parser = make_parser(version)
+    args = parser.parse_args(argv)
+    if args.command is None:
+        parser.print_help()
+        return 0
+
+    if root.resolve() == INSTALLED_ROOT and os.geteuid() != 0:
+        print(
+            "securewatch: installed scans use private system storage; run "
+            "'sudo securewatch scan' or 'sudo securewatch report'",
+            file=sys.stderr,
+        )
+        return 77
+
+    if args.command == "scan":
+        result = subprocess.run(
+            ["bash", str(root / "scripts/securewatch.sh")],
+            check=False,
+            cwd=root,
+            env=env,
+        )
+        return result.returncode
+
+    try:
+        log_dir, report_dir = configured_directories(root, env)
+        input_path = (args.input or latest_events(log_dir)).expanduser().resolve()
+        output_path = args.output or report_dir / f"report_{input_path.stem}.html"
+        output_path = output_path.expanduser().absolute()
+    except (FileNotFoundError, OSError, RuntimeError) as error:
+        print(f"securewatch: {error}", file=sys.stderr)
+        return 1
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(root / "python/report_generator.py"),
+            "--input",
+            str(input_path),
+            "--out",
+            str(output_path),
+        ],
+        check=False,
+        cwd=root,
+        env=env,
+    )
+    return result.returncode
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
