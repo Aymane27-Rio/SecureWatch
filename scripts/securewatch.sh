@@ -4,9 +4,15 @@ umask 077
 
 HERE="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 ROOT="$( dirname "$HERE" )"
+cd "$ROOT"
 
 # Load config
-source "$ROOT/config/securewatch.conf"
+CONFIG_FILE="${SECUREWATCH_CONFIG:-$ROOT/config/securewatch.conf}"
+if [[ ! -r "$CONFIG_FILE" ]]; then
+  echo "SecureWatch configuration is not readable: $CONFIG_FILE" >&2
+  exit 1
+fi
+source "$CONFIG_FILE"
 
 mkdir -p "$LOG_DIR" "$REPORT_DIR" "$STATE_DIR"
 

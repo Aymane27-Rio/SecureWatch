@@ -3,7 +3,12 @@ set -euo pipefail
 HOST=$(hostname)
 TS=$(date -Iseconds)
 if command -v rkhunter >/dev/null 2>&1; then
-  if out="$(sudo rkhunter --check --sk --nocolors --quiet 2>&1)"; then
+  if [ "$EUID" -eq 0 ]; then
+    rkhunter_command=(rkhunter --check --sk --nocolors --quiet)
+  else
+    rkhunter_command=(sudo rkhunter --check --sk --nocolors --quiet)
+  fi
+  if out="$("${rkhunter_command[@]}" 2>&1)"; then
     check_status=0
   else
     check_status=$?

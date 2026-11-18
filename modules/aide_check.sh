@@ -6,7 +6,12 @@ if command -v aide >/dev/null 2>&1; then
   tmp_dir="$(mktemp -d /tmp/securewatch-aide.XXXXXX)"
   trap 'rm -rf -- "$tmp_dir"' EXIT
   aide_output="$tmp_dir/output"
-  if sudo aide --check >"$aide_output" 2>&1; then
+  if [ "$EUID" -eq 0 ]; then
+    aide_command=(aide --check)
+  else
+    aide_command=(sudo aide --check)
+  fi
+  if "${aide_command[@]}" >"$aide_output" 2>&1; then
     check_status=0
   else
     check_status=$?
