@@ -2,6 +2,7 @@ import fcntl
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -294,6 +295,165 @@ class ReportIngestionTests(unittest.TestCase):
                 )
 
         self.assertEqual(result, {"reports": 0, "events": 0})
+
+
+class HostPortabilityTests(unittest.TestCase):
+    @staticmethod
+    def add_system_command_links(bin_dir):
+        for command in ("awk", "date", "hostname"):
+            target = shutil.which(command)
+            if target:
+                (bin_dir / command).symlink_to(target)
+
+    @staticmethod
+    def write_command(bin_dir, name, content):
+        command = bin_dir / name
+        command.write_text(content, encoding="utf-8")
+        command.chmod(0o755)
+        return command
+
+    def test_dependency_installer_supports_apt_and_dnf(self):
+        for manager, expected in (
+            (
+                "apt",
+                (
+                    "apt update",
+                    "apt install -y python3 python3-venv python3-pip",
+                    "apt install -y ufw",
+                ),
+            ),
+            (
+                "dnf",
+                (
+                    "dnf install -y python3 python3-pip",
+                    "dnf install -y firewalld",
+                ),
+            ),
+            (
+                "dnf5",
+                (
+                    "dnf5 install -y python3 python3-pip",
+                    "dnf5 install -y firewalld",
+                ),
+            ),
+        ):
+            with self.subTest(manager=manager), tempfile.TemporaryDirectory() as temp:
+                root = Path(temp)
+                bin_dir = root / "bin"
+                bin_dir.mkdir()
+                log_path = root / "packages.log"
+                self.write_command(
+                    bin_dir,
+                    "sudo",
+                    '#!/bin/bash\nexec "$@"\n',
+                )
+                self.write_command(
+                    bin_dir,
+                    manager,
+                    f'#!/bin/bash\nprintf "{manager} %s\\n" "$*" >> "$PACKAGE_LOG"\n',
+                )
+                env = {
+                    "PATH": str(bin_dir),
+                    "PACKAGE_LOG": str(log_path),
+                }
+
+                result = subprocess.run(
+                    ["/bin/bash", str(ROOT / "scripts" / "install.sh")],
+                    env=env,
+                    capture_output=True,
+                    check=False,
+                    text=True,
+                )
+                package_commands = log_path.read_text(encoding="utf-8")
+
+                self.assertEqual(result.returncode, 0, result.stderr)
+                for expected_command in expected:
+                    self.assertIn(expected_command, package_commands)
+
+    def run_update_check(self, manager, output, exit_code):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            bin_dir = root / "bin"
+            bin_dir.mkdir()
+            self.add_system_command_links(bin_dir)
+            self.write_command(
+                bin_dir,
+                manager,
+                "#!/bin/bash\nprintf '%s\\n' \"$UPDATE_OUTPUT\"\n"
+                'exit "$UPDATE_EXIT_CODE"\n',
+            )
+            env = {
+                "PATH": str(bin_dir),
+                "UPDATE_OUTPUT": output,
+                "UPDATE_EXIT_CODE": str(exit_code),
+                "LC_ALL": "C",
+            }
+            result = subprocess.run(
+                ["/bin/bash", str(ROOT / "modules" / "check_updates.sh")],
+                env=env,
+                capture_output=True,
+                check=False,
+                text=True,
+            )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return json.loads(result.stdout)
+
+    def test_apt_update_check_keeps_counting_available_updates(self):
+        event = self.run_update_check(
+            "apt",
+            "Listing... Done\nalpha/stable 1.1 amd64 [upgradable]\nbeta/stable 2.1 amd64 [upgradable]",
+            0,
+        )
+
+        self.assertEqual(event["severity"], 1)
+        self.assertEqual(event["data"], {"count": 2, "manager": "apt"})
+
+    def test_dnf_update_check_counts_updates_and_reports_errors(self):
+        updates = self.run_update_check(
+            "dnf",
+            "alpha.x86_64 1.1 updates\nbeta.noarch 2.1 updates",
+            100,
+        )
+        dnf5_updates = self.run_update_check("dnf5", "gamma.aarch64 3.1 updates", 100)
+        clean = self.run_update_check("dnf", "", 0)
+        failure = self.run_update_check("dnf", "repository unavailable", 1)
+
+        self.assertEqual(updates["severity"], 1)
+        self.assertEqual(updates["data"], {"count": 2, "manager": "dnf"})
+        self.assertEqual(dnf5_updates["data"], {"count": 1, "manager": "dnf5"})
+        self.assertEqual(clean["severity"], 0)
+        self.assertEqual(clean["data"], {"count": 0, "manager": "dnf"})
+        self.assertEqual(failure["severity"], 2)
+        self.assertEqual(failure["data"], {"manager": "dnf", "exit_code": 1})
+
+    def test_firewalld_status_is_reported_when_ufw_is_absent(self):
+        for state, expected_severity, expected_summary in (
+            ("running", 0, "firewalld active"),
+            ("inactive", 2, "firewalld inactive"),
+        ):
+            with self.subTest(state=state), tempfile.TemporaryDirectory() as temp:
+                bin_dir = Path(temp)
+                self.add_system_command_links(bin_dir)
+                self.write_command(
+                    bin_dir,
+                    "firewall-cmd",
+                    "#!/bin/bash\n"
+                    'if [ "$FIREWALL_STATE" = running ]; then exit 0; fi\n'
+                    "exit 1\n",
+                )
+                result = subprocess.run(
+                    ["/bin/bash", str(ROOT / "modules" / "firewall_status.sh")],
+                    env={"PATH": str(bin_dir), "FIREWALL_STATE": state},
+                    capture_output=True,
+                    check=False,
+                    text=True,
+                )
+
+                self.assertEqual(result.returncode, 0, result.stderr)
+                event = json.loads(result.stdout)
+                self.assertEqual(event["severity"], expected_severity)
+                self.assertEqual(event["summary"], expected_summary)
 
 
 class ShellScriptTests(unittest.TestCase):
