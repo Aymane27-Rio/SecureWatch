@@ -65,9 +65,14 @@ jobs:
         working-directory: frontend
         run: npm run build
 
-      - name: Check frontend dependencies
+      - name: Audit frontend runtime dependencies and dev tooling
         working-directory: frontend
-        run: npm audit --audit-level=moderate
+        run: |
+          npm audit --omit=dev --audit-level=moderate
+          audit_report="$RUNNER_TEMP/securewatch-frontend-audit.json"
+          npm audit --json > "$audit_report" || audit_status=$?
+          python3 ../scripts/check_frontend_audit.py \
+            "$audit_report" package.json "${audit_status:-0}"
 
       - name: Set bind-mount identity
         run: |
