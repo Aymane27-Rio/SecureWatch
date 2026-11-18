@@ -37,6 +37,7 @@ install -m 0755 "$root/scripts/securewatch.sh" "$root/scripts/notify.sh" \
   "$staging_root/usr/lib/securewatch/scripts/"
 install -m 0755 "$root/modules/"*.sh "$staging_root/usr/lib/securewatch/modules/"
 install -m 0644 "$root/python/log_parser.py" "$root/python/report_generator.py" \
+  "$root/python/scan_runner.py" \
   "$staging_root/usr/lib/securewatch/python/"
 install -m 0644 "$root/LICENSE" "$staging_root/usr/share/doc/securewatch/LICENSE"
 install -m 0644 "$root/README.md" "$staging_root/usr/share/doc/securewatch/README.md"

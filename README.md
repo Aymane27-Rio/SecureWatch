@@ -5,6 +5,7 @@ SecureWatch is a modular Linux security monitoring toolkit. It runs local checks
 ## Features
 
 - Bash checks for accounts, listening ports, firewall state, package updates, AIDE, and rkhunter.
+- Scan failures and malformed check output are recorded in reports and called out in the terminal, so incomplete coverage is visible.
 - SSH and sudo anomaly parsing with structured JSON events.
 - HTML reports and a FastAPI service that stores reports and events in SQLite.
 - React dashboard, Prometheus exporter, and starter Grafana dashboard.
