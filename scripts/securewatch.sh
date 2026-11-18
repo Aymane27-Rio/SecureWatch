@@ -78,7 +78,8 @@ fi
 # Notifying the webapi
 
 if [ -n "${WEBAPI_INGEST_URL:-}" ] && [ -n "${WEBAPI_API_KEY:-}" ]; then
-  curl -s -X POST -H "X-API-Key: ${WEBAPI_API_KEY}" "${WEBAPI_INGEST_URL}" || true
+  curl --fail --silent --show-error --connect-timeout 5 --max-time 15 \
+    -X POST -H "X-API-Key: ${WEBAPI_API_KEY}" "${WEBAPI_INGEST_URL}" || true
 fi
 
 echo "[*] SecureWatch run complete."

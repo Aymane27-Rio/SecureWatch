@@ -8,7 +8,7 @@ PYTHON := $(VENV)/bin/python
 
 help:
 	@echo "Targets:"
-	@echo "  install-deps   - Install system packages via apt (Ubuntu/Kali)"
+	@echo "  install-deps   - Install system packages via apt (Debian/Ubuntu/Kali) or dnf (Fedora)"
 	@echo "  venv           - Create Python venv and install requirements"
 	@echo "  run            - Run SecureWatch one-off scan"
 	@echo "  report         - Regenerate HTML report from latest JSON"

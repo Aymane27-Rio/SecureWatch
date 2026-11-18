@@ -64,9 +64,10 @@ Stop the stack with `docker compose down`. The SQLite database and reports remai
 
 ## Run locally without Docker
 
-Python 3.11+ and `flock` from util-linux are required for host scans. Create the Python environment and install dependencies once:
+Host scans are supported on Debian, Ubuntu, Kali, and Fedora. The dependency installer uses APT on Debian-family systems and DNF on Fedora. Firewall checks recognize UFW and firewalld, preferring UFW if both are installed. Python 3.11+ and `flock` from util-linux are required for host scans. Install host packages and create the Python environment once:
 
 ```bash
+make install-deps
 make venv
 make run
 make exporter
