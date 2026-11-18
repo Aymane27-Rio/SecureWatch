@@ -14,5 +14,7 @@ fi
 # Slack webhook (optional)
 if [ -n "${SLACK_WEBHOOK_URL:-}" ]; then
   payload=$(jq -n --arg t "$SUBJECT" --arg b "$BODY" '{text: ($t + "\n" + $b)}')
-  curl -s -X POST -H 'Content-type: application/json' --data "$payload" "$SLACK_WEBHOOK_URL" >/dev/null || true
+  curl --fail --silent --show-error --connect-timeout 5 --max-time 15 \
+    -X POST -H 'Content-type: application/json' --data "$payload" \
+    "$SLACK_WEBHOOK_URL" >/dev/null || true
 fi

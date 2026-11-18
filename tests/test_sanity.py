@@ -449,6 +449,15 @@ class ShellScriptTests(unittest.TestCase):
                 encoding="utf-8",
             )
             (root / "bin" / "jq").chmod(0o755)
+            curl_args_file = root / "curl-args.log"
+            (root / "bin" / "curl").write_text(
+                "#!/usr/bin/env bash\n"
+                'printf \'%s\\n\' "$@" >> "$CURL_ARGS_FILE"\n'
+                "printf '%s\\n' '---request---' >> \"$CURL_ARGS_FILE\"\n"
+                "exit 28\n",
+                encoding="utf-8",
+            )
+            (root / "bin" / "curl").chmod(0o755)
 
             logs_dir = root / "custom" / "logs"
             reports_dir = root / "custom" / "reports"
@@ -460,6 +469,9 @@ class ShellScriptTests(unittest.TestCase):
                     "LOG_DIR": str(logs_dir),
                     "REPORT_DIR": str(reports_dir),
                     "STATE_DIR": str(state_dir),
+                    "CURL_ARGS_FILE": str(curl_args_file),
+                    "WEBAPI_INGEST_URL": "https://api.example.invalid/ingest",
+                    "WEBAPI_API_KEY": "a" * 64,
                     "PATH": f"{root / 'bin'}:{env['PATH']}",
                 }
             )
@@ -497,6 +509,61 @@ class ShellScriptTests(unittest.TestCase):
             self.assertEqual(logs_dir.stat().st_mode & 0o777, 0o700)
             self.assertEqual(reports_dir.stat().st_mode & 0o777, 0o700)
             self.assertFalse((root / "data").exists())
+            curl_calls = [
+                call
+                for call in curl_args_file.read_text(encoding="utf-8").split(
+                    "---request---"
+                )
+                if call.strip()
+            ]
+            self.assertEqual(len(curl_calls), 2)
+            for call in curl_calls:
+                self.assertIn("--connect-timeout\n5", call)
+                self.assertIn("--max-time\n15", call)
+                self.assertIn("--fail", call)
+
+    def test_slack_webhook_uses_bounded_curl_request(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            bin_dir = root / "bin"
+            bin_dir.mkdir()
+            curl_args_file = root / "curl-args.log"
+            curl = bin_dir / "curl"
+            curl.write_text(
+                "#!/usr/bin/env bash\n"
+                'printf \'%s\\n\' "$@" > "$CURL_ARGS_FILE"\n'
+                "exit 28\n",
+                encoding="utf-8",
+            )
+            curl.chmod(0o755)
+            jq = bin_dir / "jq"
+            jq.write_text(
+                "#!/usr/bin/env bash\n" "printf '%s\\n' '{\"text\":\"test\"}'\n",
+                encoding="utf-8",
+            )
+            jq.chmod(0o755)
+            mail = bin_dir / "mail"
+            mail.write_text("#!/usr/bin/env bash\nexit 0\n", encoding="utf-8")
+            mail.chmod(0o755)
+            env = os.environ.copy()
+            env.update(
+                {
+                    "CURL_ARGS_FILE": str(curl_args_file),
+                    "SLACK_WEBHOOK_URL": "https://hooks.example.invalid/test",
+                    "PATH": f"{bin_dir}:{env['PATH']}",
+                }
+            )
+
+            subprocess.run(
+                ["bash", str(ROOT / "scripts" / "notify.sh"), "events.json", "1"],
+                env=env,
+                check=True,
+            )
+            curl_args = curl_args_file.read_text(encoding="utf-8")
+
+        self.assertIn("--connect-timeout\n5", curl_args)
+        self.assertIn("--max-time\n15", curl_args)
+        self.assertIn("--fail", curl_args)
 
     def test_orchestrator_has_valid_bash_syntax(self):
         subprocess.run(
