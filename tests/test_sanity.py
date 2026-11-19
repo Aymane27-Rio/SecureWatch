@@ -597,6 +597,7 @@ class ShellScriptTests(unittest.TestCase):
                 "rkhunter_run.sh",
                 "aide_check.sh",
                 "file_integrity.sh",
+                "ssh_hardening.sh",
             )
             for module_name in module_names:
                 module_body = 'printf \'{"severity":0,"category":"test"}\\n\'\n'

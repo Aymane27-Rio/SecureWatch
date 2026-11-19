@@ -16,6 +16,7 @@ MODULES = (
     "check_ports.sh",
     "firewall_status.sh",
     "check_updates.sh",
+    "ssh_hardening.sh",
     "rkhunter_run.sh",
     "aide_check.sh",
     "file_integrity.sh",
