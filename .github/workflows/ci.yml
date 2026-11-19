@@ -122,6 +122,32 @@ jobs:
           sudo apt-get remove -y securewatch
           sudo test -n "$(sudo find /var/lib/securewatch/logs -maxdepth 1 -type f -name 'events_*.json' -print -quit)"
 
+  kali-package:
+    runs-on: ubuntu-latest
+    container:
+      image: kalilinux/kali-rolling@sha256:1ff4a2be3849333687b3ed2b31bb5af0cd1b7c0a11ec7713feb5abe5a6b2795c
+    env:
+      DEBIAN_FRONTEND: noninteractive
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Build, install, and exercise the Debian package on Kali
+        run: |
+          version="$(cat VERSION)"
+          bash packaging/build-deb.sh "$version" /tmp/securewatch-kali-debs
+          apt-get update
+          deb_file="$(find /tmp/securewatch-kali-debs -maxdepth 1 -type f -name 'securewatch_*.deb' -print -quit)"
+          test -n "$deb_file"
+          apt-get install -y --no-install-recommends "$deb_file"
+          bash packaging/smoke-test-installed.sh "$version"
+          if dpkg-query -W -f='${Status}' ufw 2>/dev/null | grep -q 'install ok installed'; then
+            echo "SecureWatch package unexpectedly installed UFW." >&2
+            exit 1
+          fi
+          apt-get remove -y securewatch
+          test -n "$(find /var/lib/securewatch/logs -maxdepth 1 -type f -name 'events_*.json' -print -quit)"
+
   build-and-test:
     runs-on: ubuntu-latest
     env:

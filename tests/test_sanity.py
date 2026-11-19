@@ -849,6 +849,14 @@ class WorkflowSecurityTests(unittest.TestCase):
         )
         self.assertRegex(workflow, r"(?m)^\s*branches:.*'feat/\*\*'")
 
+    def test_ci_install_tests_the_debian_package_on_kali(self):
+        workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("  kali-package:\n", workflow)
+        self.assertIn("kalilinux/kali-rolling@sha256:", workflow)
+        self.assertIn('bash packaging/smoke-test-installed.sh "$version"', workflow)
+
     def test_github_actions_are_pinned_to_full_commit_shas(self):
         workflow_paths = sorted((ROOT / ".github" / "workflows").glob("*.yml"))
         action_refs = []
