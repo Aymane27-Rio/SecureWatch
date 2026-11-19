@@ -312,43 +312,37 @@ class HostPortabilityTests(unittest.TestCase):
         command.chmod(0o755)
         return command
 
-    def test_dependency_installer_supports_apt_and_dnf(self):
-        for manager, expected in (
+    def test_dependency_installer_selects_supported_distro_families(self):
+        cases = (
+            ("debian", "", "apt-get", "apt-get update"),
+            ("kali", "debian", "apt-get", "apt-get install -y --no-install-recommends"),
+            ("fedora", "", "dnf", "dnf install -y"),
             (
-                "apt",
-                (
-                    "apt update",
-                    "apt install -y python3 python3-venv python3-pip",
-                    "apt install -y ufw",
-                ),
+                "opensuse-tumbleweed",
+                "suse",
+                "zypper",
+                "zypper --non-interactive install --no-recommends",
             ),
+            ("endeavouros", "arch", "pacman", "pacman -S --needed --noconfirm"),
             (
-                "dnf",
-                (
-                    "dnf install -y jq curl lsof net-tools inotify-tools util-linux hostname",
-                    "dnf install -y python3 python3-pip",
-                    "dnf install -y firewalld",
-                ),
+                "custom-linux",
+                "ubuntu debian",
+                "apt-get",
+                "apt-get install -y --no-install-recommends",
             ),
-            (
-                "dnf5",
-                (
-                    "dnf5 install -y jq curl lsof net-tools inotify-tools util-linux hostname",
-                    "dnf5 install -y python3 python3-pip",
-                    "dnf5 install -y firewalld",
-                ),
-            ),
-        ):
-            with self.subTest(manager=manager), tempfile.TemporaryDirectory() as temp:
+        )
+        for distro_id, distro_like, manager, expected in cases:
+            with self.subTest(distro=distro_id), tempfile.TemporaryDirectory() as temp:
                 root = Path(temp)
                 bin_dir = root / "bin"
                 bin_dir.mkdir()
-                log_path = root / "packages.log"
-                self.write_command(
-                    bin_dir,
-                    "sudo",
-                    '#!/bin/bash\nexec "$@"\n',
+                os_release = root / "os-release"
+                os_release.write_text(
+                    f'ID="{distro_id}"\nID_LIKE="{distro_like}"\n',
+                    encoding="utf-8",
                 )
+                log_path = root / "packages.log"
+                self.write_command(bin_dir, "sudo", '#!/bin/bash\nexec "$@"\n')
                 self.write_command(
                     bin_dir,
                     manager,
@@ -357,6 +351,7 @@ class HostPortabilityTests(unittest.TestCase):
                 env = {
                     "PATH": str(bin_dir),
                     "PACKAGE_LOG": str(log_path),
+                    "SECUREWATCH_OS_RELEASE_FILE": str(os_release),
                 }
 
                 result = subprocess.run(
@@ -366,11 +361,100 @@ class HostPortabilityTests(unittest.TestCase):
                     check=False,
                     text=True,
                 )
-                package_commands = log_path.read_text(encoding="utf-8")
 
                 self.assertEqual(result.returncode, 0, result.stderr)
-                for expected_command in expected:
-                    self.assertIn(expected_command, package_commands)
+                package_commands = log_path.read_text(encoding="utf-8")
+                self.assertIn(expected, package_commands)
+                self.assertIn("aide", package_commands)
+                self.assertIn("nmap", package_commands)
+                if manager == "pacman":
+                    self.assertIn("pacman-contrib", package_commands)
+
+    def test_dependency_installer_prefers_dnf5_when_available(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            bin_dir = root / "bin"
+            bin_dir.mkdir()
+            os_release = root / "os-release"
+            os_release.write_text('ID="fedora"\n', encoding="utf-8")
+            log_path = root / "packages.log"
+            self.write_command(bin_dir, "sudo", '#!/bin/bash\nexec "$@"\n')
+            for manager in ("dnf", "dnf5"):
+                self.write_command(
+                    bin_dir,
+                    manager,
+                    f'#!/bin/bash\nprintf "{manager} %s\\n" "$*" >> "$PACKAGE_LOG"\n',
+                )
+            result = subprocess.run(
+                ["/bin/bash", str(ROOT / "scripts" / "install.sh")],
+                env={
+                    "PATH": str(bin_dir),
+                    "PACKAGE_LOG": str(log_path),
+                    "SECUREWATCH_OS_RELEASE_FILE": str(os_release),
+                },
+                capture_output=True,
+                check=False,
+                text=True,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            package_commands = log_path.read_text(encoding="utf-8")
+            self.assertIn("dnf5 install -y", package_commands)
+            self.assertNotIn("dnf install -y", package_commands)
+
+    def test_dependency_installer_continues_when_optional_tools_are_unavailable(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            bin_dir = root / "bin"
+            bin_dir.mkdir()
+            os_release = root / "os-release"
+            os_release.write_text('ID="fedora"\n', encoding="utf-8")
+            log_path = root / "packages.log"
+            self.write_command(bin_dir, "sudo", '#!/bin/bash\nexec "$@"\n')
+            self.write_command(
+                bin_dir,
+                "dnf",
+                "#!/bin/bash\n"
+                'printf "dnf %s\\n" "$*" >> "$PACKAGE_LOG"\n'
+                'case "$*" in *" aide"|*" rkhunter"|*" nmap"|*" firewalld") exit 1 ;; esac\n'
+                "exit 0\n",
+            )
+            result = subprocess.run(
+                ["/bin/bash", str(ROOT / "scripts" / "install.sh")],
+                env={
+                    "PATH": str(bin_dir),
+                    "PACKAGE_LOG": str(log_path),
+                    "SECUREWATCH_OS_RELEASE_FILE": str(os_release),
+                },
+                capture_output=True,
+                check=False,
+                text=True,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("optional package aide could not be installed", result.stderr)
+            self.assertIn("optional package nmap could not be installed", result.stderr)
+
+    def test_dependency_installer_does_not_execute_os_release_contents(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            os_release = root / "os-release"
+            marker = root / "executed"
+            os_release.write_text(
+                f'ID="unsupported"\n$(touch {marker})\n', encoding="utf-8"
+            )
+            result = subprocess.run(
+                ["/bin/bash", str(ROOT / "scripts" / "install.sh")],
+                env={
+                    "PATH": "/usr/bin:/bin",
+                    "SECUREWATCH_OS_RELEASE_FILE": str(os_release),
+                },
+                capture_output=True,
+                check=False,
+                text=True,
+            )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(marker.exists())
 
     def run_update_check(self, manager, output, exit_code, dnf_version="4.21.0"):
         with tempfile.TemporaryDirectory() as temp:
@@ -382,11 +466,18 @@ class HostPortabilityTests(unittest.TestCase):
                 expected_args = "check-upgrade --json"
             elif manager == "dnf":
                 expected_args = "check-update"
+            elif manager == "zypper":
+                expected_args = "--non-interactive list-updates"
+            elif manager == "pacman":
+                expected_args = ""
             else:
                 expected_args = "list --upgradable"
+            command_name = "checkupdates" if manager == "pacman" else manager
+            if manager == "pacman":
+                self.write_command(bin_dir, "pacman", "#!/bin/bash\nexit 0\n")
             self.write_command(
                 bin_dir,
-                manager,
+                command_name,
                 "#!/bin/bash\n"
                 'if [ "$1" = --version ]; then printf \'%s\\n\' "$DNF_VERSION"; exit 0; fi\n'
                 'if [ "$*" != "$EXPECTED_ARGS" ]; then echo "unexpected arguments: $*" >&2; exit 99; fi\n'
@@ -445,6 +536,50 @@ class HostPortabilityTests(unittest.TestCase):
         self.assertEqual(failure["severity"], 2)
         self.assertEqual(failure["data"], {"manager": "dnf", "exit_code": 1})
 
+    def test_zypper_update_check_counts_table_rows_and_reports_errors(self):
+        table = (
+            "S | Repository | Name | Current Version | Available Version | Arch\n"
+            "--+------------+------+-----------------+-------------------+-----\n"
+            "v | Main       | alpha| 1.0             | 1.1               | x86_64\n"
+            "v | Main       | beta | 2.0             | 2.1               | noarch"
+        )
+        updates = self.run_update_check("zypper", table, 0)
+        clean = self.run_update_check("zypper", "No updates found", 0)
+        failure = self.run_update_check("zypper", "repository unavailable", 7)
+
+        self.assertEqual(updates["data"], {"count": 2, "manager": "zypper"})
+        self.assertEqual(clean["data"], {"count": 0, "manager": "zypper"})
+        self.assertEqual(failure["severity"], 2)
+
+    def test_pacman_update_check_uses_safe_checkupdates_exit_codes(self):
+        updates = self.run_update_check(
+            "pacman", "alpha 1.0 -> 1.1\nbeta 2.0 -> 2.1", 0
+        )
+        clean = self.run_update_check("pacman", "", 2)
+        failure = self.run_update_check("pacman", "sync failed", 1)
+
+        self.assertEqual(updates["data"], {"count": 2, "manager": "pacman"})
+        self.assertEqual(clean["data"], {"count": 0, "manager": "pacman"})
+        self.assertEqual(failure["severity"], 2)
+
+    def test_pacman_update_check_reports_when_checkupdates_is_missing(self):
+        with tempfile.TemporaryDirectory() as temp:
+            bin_dir = Path(temp)
+            self.add_system_command_links(bin_dir)
+            self.write_command(bin_dir, "pacman", "#!/bin/bash\nexit 0\n")
+            result = subprocess.run(
+                ["/bin/bash", str(ROOT / "modules" / "check_updates.sh")],
+                env={"PATH": str(bin_dir)},
+                capture_output=True,
+                check=False,
+                text=True,
+            )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        event = json.loads(result.stdout)
+        self.assertEqual(event["severity"], 2)
+        self.assertEqual(event["data"], {"manager": "pacman", "exit_code": 127})
+
     def test_firewalld_status_is_reported_when_ufw_is_absent(self):
         for state, expected_severity, expected_summary in (
             ("running", 0, "firewalld active"),
@@ -472,6 +607,70 @@ class HostPortabilityTests(unittest.TestCase):
                 event = json.loads(result.stdout)
                 self.assertEqual(event["severity"], expected_severity)
                 self.assertEqual(event["summary"], expected_summary)
+
+    def test_nftables_firewall_status_reports_rules_without_claiming_they_are_safe(
+        self,
+    ):
+        cases = (
+            (
+                "table inet filter { chain input { type filter hook input priority 0; policy drop; } }",
+                1,
+                "filter-chains-present",
+            ),
+            ("", 2, "empty"),
+        )
+        for ruleset, expected_severity, expected_status in cases:
+            with self.subTest(
+                status=expected_status
+            ), tempfile.TemporaryDirectory() as temp:
+                bin_dir = Path(temp)
+                self.add_system_command_links(bin_dir)
+                grep_path = shutil.which("grep")
+                if grep_path:
+                    (bin_dir / "grep").symlink_to(grep_path)
+                self.write_command(
+                    bin_dir,
+                    "nft",
+                    "#!/bin/bash\n"
+                    'if [ "$*" != "list ruleset" ]; then exit 99; fi\n'
+                    'printf "%s\\n" "$NFT_RULESET"\n'
+                    'exit "$NFT_EXIT_CODE"\n',
+                )
+                result = subprocess.run(
+                    ["/bin/bash", str(ROOT / "modules" / "firewall_status.sh")],
+                    env={
+                        "PATH": str(bin_dir),
+                        "NFT_RULESET": ruleset,
+                        "NFT_EXIT_CODE": "0",
+                    },
+                    capture_output=True,
+                    check=False,
+                    text=True,
+                )
+
+                self.assertEqual(result.returncode, 0, result.stderr)
+                event = json.loads(result.stdout)
+                self.assertEqual(event["severity"], expected_severity)
+                self.assertEqual(event["data"]["nftables_status"], expected_status)
+
+    def test_nftables_status_check_errors_are_not_reported_as_a_clean_firewall(self):
+        with tempfile.TemporaryDirectory() as temp:
+            bin_dir = Path(temp)
+            self.add_system_command_links(bin_dir)
+            self.write_command(bin_dir, "nft", "#!/bin/bash\nexit 13\n")
+            result = subprocess.run(
+                ["/bin/bash", str(ROOT / "modules" / "firewall_status.sh")],
+                env={"PATH": str(bin_dir)},
+                capture_output=True,
+                check=False,
+                text=True,
+            )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        event = json.loads(result.stdout)
+        self.assertEqual(event["severity"], 2)
+        self.assertEqual(event["data"]["nftables_status"], "error")
+        self.assertEqual(event["data"]["exit_code"], 13)
 
 
 class ShellScriptTests(unittest.TestCase):

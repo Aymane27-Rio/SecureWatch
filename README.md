@@ -65,7 +65,9 @@ Stop the stack with `docker compose down`. The SQLite database and reports remai
 
 ## Run locally without Docker
 
-Host scans are supported on Debian, Ubuntu, Kali, and Fedora. The dependency installer uses APT on Debian-family systems and DNF on Fedora. Firewall checks recognize UFW and firewalld, preferring UFW if both are installed. Python 3.11+ and `flock` from util-linux are required for host scans. Install host packages and create the Python environment once:
+The source dependency installer supports APT on Debian, Ubuntu, Kali, and compatible derivatives; DNF on Fedora and compatible RHEL derivatives; Zypper on openSUSE; and Pacman on Arch-family systems. The native packages are currently built for Debian-family systems (`.deb`) and Fedora (`.rpm`). The `.deb` targets Debian-family systems and should work on Kali, but Kali does not yet have a dedicated release CI job. The Zypper and Pacman installer paths have mocked package-manager tests; live package install CI currently covers Debian, Ubuntu, and Fedora, so openSUSE and Arch-family hosts still need live validation. On other Linux systems, the source CLI can be run manually if Bash, Python 3.11+, `flock` from util-linux, and the required utilities are available. Optional scanners that are missing or unavailable from a distribution's repositories are reported as unavailable rather than blocking installation. On Arch-family systems, update the system with `sudo pacman -Syu` before installing dependencies; SecureWatch avoids triggering a partial system upgrade.
+
+Update checks cover APT, DNF/DNF5, Zypper, and Pacman through `checkupdates` from `pacman-contrib`. Firewall checks recognize UFW, firewalld, and nftables; nftables rules are reported for review and are not treated as proof of a safe policy. Install host packages and create the Python environment once:
 
 ```bash
 make install-deps
@@ -86,7 +88,7 @@ make package-deb VERSION=0.3.0 OUTPUT=dist
 make package-rpm VERSION=0.3.0 OUTPUT=dist
 ```
 
-After a package release is published, install the downloaded asset with your system package manager. For the planned `v0.3.0` release, the commands are `sudo apt install ./securewatch_0.3.0_all.deb` on Debian or Ubuntu and `sudo dnf install ./securewatch-0.3.0-1.noarch.rpm` on Fedora. The Debian package requires Python 3.11 or later. Run `sudo securewatch scan` for a complete host audit. Reports and scan data are stored with owner-only permissions under `/var/lib/securewatch`. The hourly timer is opt-in: enable it with `sudo systemctl enable --now securewatch.timer`. Package upgrades preserve `/etc/securewatch/securewatch.conf` and generated reports. Package removal also leaves generated reports and scan data in place.
+For the stable `v0.3.0` release, install the downloaded asset with your system package manager: `sudo apt install ./securewatch_0.3.0_all.deb` on Debian-family systems, including Kali, or `sudo dnf install ./securewatch-0.3.0-1.noarch.rpm` on Fedora. The Debian package requires Python 3.11 or later. Run `sudo securewatch scan` for a complete host audit. Reports and scan data are stored with owner-only permissions under `/var/lib/securewatch`. The hourly timer is opt-in: enable it with `sudo systemctl enable --now securewatch.timer`. Package upgrades preserve `/etc/securewatch/securewatch.conf` and generated reports. Package removal also leaves generated reports and scan data in place.
 
 The Debian package recommends AIDE, rkhunter, Nmap, and network utilities for optional checks. Fedora's package recommends the equivalent Fedora packages. Missing optional tools are reported in scan output.
 
