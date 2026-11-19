@@ -24,7 +24,14 @@ securewatch integrity init --path /etc/hostname
 securewatch integrity verify --strict
 
 securewatch scan
-latest_events="$(find /var/lib/securewatch/logs -maxdepth 1 -type f -name 'events_*.json' -printf '%T@ %p\n' | sort -nr | head -n1 | cut -d ' ' -f2-)"
+latest_events="$(python3 - <<'PY'
+from pathlib import Path
+
+reports = list(Path("/var/lib/securewatch/logs").glob("events_*.json"))
+if reports:
+    print(max(reports, key=lambda path: path.stat().st_mtime_ns))
+PY
+)"
 test -n "$latest_events"
 python3 - "$latest_events" <<'PY'
 import json

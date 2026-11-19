@@ -857,6 +857,18 @@ class WorkflowSecurityTests(unittest.TestCase):
         self.assertIn("kalilinux/kali-rolling@sha256:", workflow)
         self.assertIn('bash packaging/smoke-test-installed.sh "$version"', workflow)
 
+    def test_ci_install_tests_the_fedora_rpm_on_opensuse(self):
+        workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("  opensuse-rpm-package:\n", workflow)
+        self.assertIn("opensuse/tumbleweed@sha256:", workflow)
+        self.assertIn("fedora:45@sha256:", workflow)
+        self.assertIn(
+            'bash /tmp/smoke-test-installed.sh "$SECUREWATCH_RELEASE_VERSION"',
+            workflow,
+        )
+
     def test_ci_runs_the_source_audits_on_alpine(self):
         workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text(
             encoding="utf-8"
