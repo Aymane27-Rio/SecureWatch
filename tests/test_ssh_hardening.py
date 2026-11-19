@@ -11,13 +11,16 @@ sys.path.insert(0, str(ROOT / "python"))
 
 from ssh_hardening import (  # noqa: E402
     SSHD_CONTEXTS,
+    SSHD_MAX_AUDIT_PORTS,
     _trusted_executable,
+    _parse_configured_ports,
     evaluate_sshd_output,
     inspect_sshd,
     locate_sshd,
 )
 
 SAFE_SETTINGS = """\
+port 22
 permitrootlogin no
 passwordauthentication no
 permitemptypasswords no
@@ -40,6 +43,14 @@ class SSHHardeningAuditTests(unittest.TestCase):
         events = evaluate_sshd_output(output, context="root-loopback")
 
         self.assertEqual(events[0]["data"]["context"], "root-loopback")
+
+    def test_parses_unique_valid_listener_ports_and_reports_invalid_values(self):
+        ports, invalid = _parse_configured_ports(
+            "port 22\nport 2222\nport 22\nport 0\nport 65536\nport 999999\n"
+        )
+
+        self.assertEqual(ports, [22, 2222])
+        self.assertEqual(invalid, ["port 0", "port 65536", "port 999999"])
 
     def test_reports_weak_authentication_settings_by_severity(self):
         output = """\
@@ -121,16 +132,65 @@ maxauthtries 8
         self.assertEqual(run.call_count, len(SSHD_CONTEXTS))
         for call_args, (_, connection) in zip(run.call_args_list, SSHD_CONTEXTS):
             self.assertEqual(
-                call_args.args[0], ["/usr/sbin/sshd", "-T", "-C", connection]
+                call_args.args[0],
+                ["/usr/sbin/sshd", "-T", "-C", f"{connection},lport=22"],
             )
             self.assertLessEqual(call_args.kwargs["timeout"], 10)
             self.assertEqual(call_args.kwargs["check"], False)
         self.assertEqual(events[0]["severity"], 0)
         self.assertEqual(
-            events[0]["data"]["contexts"], [name for name, _ in SSHD_CONTEXTS]
+            events[0]["data"]["contexts"],
+            [f"{name}-port-22" for name, _ in SSHD_CONTEXTS],
         )
 
-    def test_reports_match_rule_finding_with_its_sampled_context(self):
+    def test_audits_nonstandard_listener_ports(self):
+        custom_port_settings = SAFE_SETTINGS.replace("port 22", "port 2222")
+        completed = SimpleNamespace(returncode=0, stdout=SAFE_SETTINGS, stderr="")
+        with patch("ssh_hardening.locate_sshd", return_value="/usr/sbin/sshd"):
+            with patch(
+                "ssh_hardening.subprocess.run",
+                side_effect=[
+                    SimpleNamespace(
+                        returncode=0, stdout=custom_port_settings, stderr=""
+                    ),
+                    completed,
+                    completed,
+                    completed,
+                    completed,
+                ],
+            ) as run:
+                events = inspect_sshd()
+
+        self.assertEqual(run.call_count, len(SSHD_CONTEXTS) + 1)
+        self.assertEqual(run.call_args_list[0].args[0][-1].split(",")[-1], "lport=22")
+        self.assertTrue(
+            all(
+                call.args[0][-1].endswith("lport=2222")
+                for call in run.call_args_list[1:]
+            )
+        )
+        self.assertEqual(events[0]["severity"], 0)
+        self.assertEqual(
+            events[0]["data"]["contexts"],
+            [f"{name}-port-2222" for name, _ in SSHD_CONTEXTS],
+        )
+
+    def test_marks_audit_incomplete_when_configured_port_limit_is_exceeded(self):
+        settings = SAFE_SETTINGS + "port 2222\nport 2223\nport 2224\nport 2225\n"
+        completed = SimpleNamespace(returncode=0, stdout=SAFE_SETTINGS, stderr="")
+        results = [SimpleNamespace(returncode=0, stdout=settings, stderr="")]
+        results.extend([completed] * (SSHD_MAX_AUDIT_PORTS * len(SSHD_CONTEXTS)))
+        with patch("ssh_hardening.locate_sshd", return_value="/usr/sbin/sshd"):
+            with patch("ssh_hardening.subprocess.run", side_effect=results) as run:
+                events = inspect_sshd()
+
+        self.assertEqual(run.call_count, SSHD_MAX_AUDIT_PORTS * len(SSHD_CONTEXTS))
+        self.assertEqual(events[0]["severity"], 2)
+        self.assertEqual(events[0]["summary"], "SSH listener port audit limit reached")
+        self.assertEqual(events[0]["data"]["checked_ports"], [22, 2222, 2223, 2224])
+
+    def test_reports_a_match_rule_finding_for_its_nonstandard_port(self):
+        custom_port_settings = SAFE_SETTINGS.replace("port 22", "port 2222")
         weak_settings = SAFE_SETTINGS.replace(
             "permitrootlogin no", "permitrootlogin yes"
         )
@@ -139,6 +199,9 @@ maxauthtries 8
             with patch(
                 "ssh_hardening.subprocess.run",
                 side_effect=[
+                    SimpleNamespace(
+                        returncode=0, stdout=custom_port_settings, stderr=""
+                    ),
                     SimpleNamespace(returncode=0, stdout=weak_settings, stderr=""),
                     completed,
                     completed,
@@ -148,7 +211,7 @@ maxauthtries 8
                 events = inspect_sshd()
 
         self.assertEqual(events[0]["severity"], 3)
-        self.assertEqual(events[0]["data"]["context"], "root-loopback")
+        self.assertEqual(events[0]["data"]["context"], "root-loopback-port-2222")
         self.assertEqual(events[0]["data"]["setting"], "permitrootlogin")
 
     def test_keeps_findings_if_a_later_context_cannot_be_checked(self):
@@ -168,14 +231,16 @@ maxauthtries 8
                 events = inspect_sshd()
 
         self.assertEqual([event["severity"] for event in events], [3, 2])
-        self.assertEqual(events[0]["data"]["context"], "root-loopback")
-        self.assertEqual(events[1]["data"]["context"], "nobody-loopback")
-        self.assertEqual(events[1]["data"]["contexts_checked"], ["root-loopback"])
+        self.assertEqual(events[0]["data"]["context"], "root-loopback-port-22")
+        self.assertEqual(events[1]["data"]["context"], "nobody-loopback-port-22")
+        self.assertEqual(
+            events[1]["data"]["contexts_checked"], ["root-loopback-port-22"]
+        )
         self.assertEqual(
             events[1]["data"]["contexts_not_checked"],
             [
-                "root-external-ipv4",
-                "nobody-external-ipv4",
+                "root-external-ipv4-port-22",
+                "nobody-external-ipv4-port-22",
             ],
         )
 
@@ -197,7 +262,7 @@ maxauthtries 8
                 failure_event = inspect_sshd()[0]
 
         self.assertEqual(timeout_event["severity"], 2)
-        self.assertEqual(timeout_event["data"]["context"], "root-loopback")
+        self.assertEqual(timeout_event["data"]["context"], "port-discovery")
         self.assertEqual(timeout_event["data"]["contexts_checked"], [])
         self.assertEqual(failure_event["severity"], 2)
         self.assertEqual(failure_event["data"]["reason"], "bad configuration line 2")
@@ -212,8 +277,7 @@ maxauthtries 8
         self.assertEqual(event["severity"], 2)
         self.assertEqual(event["data"]["contexts_checked"], [])
         self.assertEqual(
-            event["data"]["contexts_not_checked"],
-            [name for name, _ in SSHD_CONTEXTS],
+            event["data"]["contexts_not_checked"], ["configured SSH port contexts"]
         )
 
 

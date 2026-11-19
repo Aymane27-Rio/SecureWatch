@@ -20,22 +20,24 @@ SSHD_CANDIDATES = (
 )
 SSHD_TIMEOUT_SECONDS = 10
 SSHD_TOTAL_TIMEOUT_SECONDS = 20
+SSHD_DISCOVERY_PORT = 22
+SSHD_MAX_AUDIT_PORTS = 4
 SSHD_CONTEXTS = (
     (
         "root-loopback",
-        "user=root,host=localhost,addr=127.0.0.1,laddr=127.0.0.1,lport=22",
+        "user=root,host=localhost,addr=127.0.0.1,laddr=127.0.0.1",
     ),
     (
         "nobody-loopback",
-        "user=nobody,host=localhost,addr=127.0.0.1,laddr=127.0.0.1,lport=22",
+        "user=nobody,host=localhost,addr=127.0.0.1,laddr=127.0.0.1",
     ),
     (
         "root-external-ipv4",
-        "user=root,host=audit.invalid,addr=198.51.100.1,laddr=127.0.0.1,lport=22",
+        "user=root,host=audit.invalid,addr=198.51.100.1,laddr=127.0.0.1",
     ),
     (
         "nobody-external-ipv4",
-        "user=nobody,host=audit.invalid,addr=198.51.100.1,laddr=127.0.0.1,lport=22",
+        "user=nobody,host=audit.invalid,addr=198.51.100.1,laddr=127.0.0.1",
     ),
 )
 REQUIRED_SETTINGS = (
@@ -252,10 +254,91 @@ def locate_sshd():
     return None
 
 
-def _context_names_from(index):
-    return [
-        name for position, (name, _) in enumerate(SSHD_CONTEXTS) if position >= index
-    ]
+def _context_names_from(contexts, index):
+    return [name for position, (name, _) in enumerate(contexts) if position >= index]
+
+
+def _parse_configured_ports(output):
+    ports = []
+    invalid = []
+    for line in output.splitlines():
+        fields = line.split()
+        if not fields or fields[0].lower() != "port":
+            continue
+        if (
+            len(fields) != 2
+            or not fields[1].isascii()
+            or not fields[1].isdigit()
+            or len(fields[1]) > 5
+        ):
+            invalid.append(" ".join(fields)[:80])
+            continue
+        port = int(fields[1])
+        if not 1 <= port <= 65535:
+            invalid.append(" ".join(fields)[:80])
+            continue
+        if port not in ports:
+            ports.append(port)
+    return ports, invalid
+
+
+def _run_sshd_context(executable, context_name, connection, start, unchecked):
+    remaining = SSHD_TOTAL_TIMEOUT_SECONDS - (time.monotonic() - start)
+    if remaining <= 0:
+        return None, _event(
+            2,
+            "OpenSSH context inspection exceeded its time budget",
+            {
+                "context": context_name,
+                "contexts_not_checked": unchecked,
+                "timeout_seconds": SSHD_TOTAL_TIMEOUT_SECONDS,
+            },
+        )
+
+    timeout = min(SSHD_TIMEOUT_SECONDS, remaining)
+    try:
+        result = subprocess.run(
+            [executable, "-T", "-C", connection],
+            check=False,
+            capture_output=True,
+            text=True,
+            errors="replace",
+            timeout=timeout,
+        )
+    except subprocess.TimeoutExpired:
+        return None, _event(
+            2,
+            "OpenSSH context inspection timed out",
+            {
+                "context": context_name,
+                "contexts_not_checked": unchecked,
+                "timeout_seconds": timeout,
+            },
+        )
+    except OSError as error:
+        return None, _event(
+            2,
+            "OpenSSH settings inspection failed",
+            {
+                "context": context_name,
+                "reason": str(error)[:200],
+                "contexts_not_checked": unchecked,
+            },
+        )
+
+    if result.returncode != 0:
+        reason = " ".join((result.stderr or "").split())[:200]
+        return None, _event(
+            2,
+            "OpenSSH settings inspection failed",
+            {
+                "context": context_name,
+                "exit_code": result.returncode,
+                "reason": reason,
+                "contexts_not_checked": unchecked,
+            },
+        )
+    return result, None
 
 
 def inspect_sshd():
@@ -270,80 +353,80 @@ def inspect_sshd():
         ]
 
     start = time.monotonic()
+    first_context_name, first_connection = SSHD_CONTEXTS[0]
+    discovery_result, error_event = _run_sshd_context(
+        executable,
+        "port-discovery",
+        f"{first_connection},lport={SSHD_DISCOVERY_PORT}",
+        start,
+        ["configured SSH port contexts"],
+    )
+    if error_event:
+        error_event["data"]["contexts_checked"] = []
+        return [error_event]
+
+    ports, invalid_ports = _parse_configured_ports(discovery_result.stdout)
+    findings = []
+    if invalid_ports:
+        findings.append(
+            _event(
+                2,
+                "Some SSH listener ports could not be verified",
+                {"invalid_ports": invalid_ports},
+            )
+        )
+    if not ports:
+        findings.append(
+            _event(
+                2,
+                "SSH listener ports could not be determined",
+                {"reason": "sshd -T did not report a valid port"},
+            )
+        )
+        return findings
+    if len(ports) > SSHD_MAX_AUDIT_PORTS:
+        findings.append(
+            _event(
+                2,
+                "SSH listener port audit limit reached",
+                {
+                    "configured_ports": ports,
+                    "checked_ports": ports[:SSHD_MAX_AUDIT_PORTS],
+                    "maximum_checked_ports": SSHD_MAX_AUDIT_PORTS,
+                },
+            )
+        )
+        ports = ports[:SSHD_MAX_AUDIT_PORTS]
+
+    audit_contexts = [
+        (
+            f"{context_name}-port-{port}",
+            f"{connection},lport={port}",
+        )
+        for port in ports
+        for context_name, connection in SSHD_CONTEXTS
+    ]
     checked_contexts = []
     clean_contexts = []
-    findings = []
-    for index, (context_name, connection) in enumerate(SSHD_CONTEXTS):
-        remaining = SSHD_TOTAL_TIMEOUT_SECONDS - (time.monotonic() - start)
-        if remaining <= 0:
-            findings.append(
-                _event(
-                    2,
-                    "OpenSSH context inspection exceeded its time budget",
-                    {
-                        "contexts_checked": checked_contexts,
-                        "contexts_not_checked": _context_names_from(index),
-                        "timeout_seconds": SSHD_TOTAL_TIMEOUT_SECONDS,
-                    },
-                )
+    for index, (context_name, connection) in enumerate(audit_contexts):
+        if (
+            context_name == f"{first_context_name}-port-{SSHD_DISCOVERY_PORT}"
+            and discovery_result is not None
+            and SSHD_DISCOVERY_PORT in ports
+        ):
+            result = discovery_result
+        else:
+            result, error_event = _run_sshd_context(
+                executable,
+                context_name,
+                connection,
+                start,
+                _context_names_from(audit_contexts, index + 1),
             )
-            break
-
-        timeout = min(SSHD_TIMEOUT_SECONDS, remaining)
-        try:
-            result = subprocess.run(
-                [executable, "-T", "-C", connection],
-                check=False,
-                capture_output=True,
-                text=True,
-                errors="replace",
-                timeout=timeout,
-            )
-        except subprocess.TimeoutExpired:
-            findings.append(
-                _event(
-                    2,
-                    "OpenSSH context inspection timed out",
-                    {
-                        "context": context_name,
-                        "contexts_checked": checked_contexts,
-                        "contexts_not_checked": _context_names_from(index + 1),
-                        "timeout_seconds": timeout,
-                    },
-                )
-            )
-            break
-        except OSError as error:
-            findings.append(
-                _event(
-                    2,
-                    "OpenSSH settings inspection failed",
-                    {
-                        "context": context_name,
-                        "reason": str(error)[:200],
-                        "contexts_checked": checked_contexts,
-                        "contexts_not_checked": _context_names_from(index + 1),
-                    },
-                )
-            )
-            break
-
-        if result.returncode != 0:
-            reason = " ".join((result.stderr or "").split())[:200]
-            findings.append(
-                _event(
-                    2,
-                    "OpenSSH settings inspection failed",
-                    {
-                        "context": context_name,
-                        "exit_code": result.returncode,
-                        "reason": reason,
-                        "contexts_checked": checked_contexts,
-                        "contexts_not_checked": _context_names_from(index + 1),
-                    },
-                )
-            )
-            break
+            if error_event:
+                error_event["data"]["contexts_checked"] = checked_contexts
+                findings.append(error_event)
+                break
 
         checked_contexts.append(context_name)
         context_events = evaluate_sshd_output(result.stdout, context=context_name)
