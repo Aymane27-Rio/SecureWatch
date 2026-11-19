@@ -116,6 +116,12 @@ def make_parser(version):
         action="store_true",
         help="exit nonzero when verification is incomplete or finds changes",
     )
+    doctor_parser = subparsers.add_parser(
+        "doctor", help="check host readiness and available audit checks"
+    )
+    doctor_parser.add_argument(
+        "--json", action="store_true", help="print machine-readable JSON"
+    )
     return parser
 
 
@@ -134,13 +140,24 @@ def main(argv=None):
         parser.print_help()
         return 0
 
-    if root.resolve() == INSTALLED_ROOT and os.geteuid() != 0:
+    if (
+        root.resolve() == INSTALLED_ROOT
+        and os.geteuid() != 0
+        and args.command in {"scan", "report", "integrity"}
+    ):
         print(
             "securewatch: installed scans use private system storage; run "
             "'sudo securewatch scan' or 'sudo securewatch report'",
             file=sys.stderr,
         )
         return 77
+
+    if args.command == "doctor":
+        command = [sys.executable, str(root / "python/doctor.py")]
+        if args.json:
+            command.append("--json")
+        result = subprocess.run(command, check=False, cwd=root, env=env)
+        return result.returncode
 
     if args.command == "scan":
         result = subprocess.run(

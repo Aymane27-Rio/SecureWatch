@@ -78,6 +78,8 @@ make exporter
 
 The source CLI supports `scan`, `report`, `--help`, and `--version`. `report` renders the latest scan as HTML; pass `--input PATH` or `--output PATH` to select files explicitly. Source runs store private reports under the repository's `data/` directory. The web dashboard remains optional and can still be run with Docker Compose.
 
+Run `securewatch doctor` before a scan to check the Python version, required commands, package-manager commands on `PATH`, optional audit tools, and whether the command has root visibility. It is read-only and does not install packages or contact repositories. Missing optional tools are reported as unavailable checks; the command exits nonzero when Python or a required runtime command is missing. Add `--json` for automation.
+
 The account check treats the expected `root` account as normal and flags additional accounts assigned UID 0. Malformed or unreadable account data is reported as incomplete instead of being treated as a clean result.
 
 When OpenSSH server is installed, scans inspect its effective configuration with `sshd -T -C` for four representative connection contexts: root and a regular account (`nobody`), each from loopback and a reserved external IPv4 address. The audit reads the configured listener ports and checks up to four of them, so `Match LocalPort` rules on nonstandard ports are included. If more than four ports are configured, the report marks the port audit incomplete. This check is read-only and does not open a network connection or modify SSH configuration. The samples do not exhaust every username, source or destination address, IPv6 route, or hostname that may match your rules; review context-specific rules for your environment. Findings identify the sample context and port. Missing OpenSSH is reported as an unavailable optional check.
@@ -156,6 +158,7 @@ Pushing a `v*` tag runs the release workflow. The tag must match `VERSION`; the 
 - `packaging/` — Debian/RPM build definitions and installed-package smoke checks.
 - `modules/` — individual Linux checks.
 - `python/log_parser.py` — parses authentication logs.
+- `python/doctor.py` — checks host readiness and available audit checks.
 - `python/report_generator.py` — creates the HTML report.
 - `python/exporters/securewatch_exporter.py` — publishes Prometheus metrics.
 - `webapi/` — FastAPI service, SQLite helpers, and report ingestion.

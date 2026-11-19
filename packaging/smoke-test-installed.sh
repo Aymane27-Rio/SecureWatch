@@ -9,6 +9,9 @@ fi
 expected_version="$1"
 securewatch --version | grep -Fx "securewatch $expected_version"
 securewatch --help >/dev/null
+doctor_output="$(securewatch doctor --json)"
+python3 -c 'import json,sys; result=json.load(sys.stdin); assert result.get("ready") is True; assert "optional_checks" in result' \
+  <<< "$doctor_output"
 test -x /usr/bin/securewatch
 test -r /etc/securewatch/securewatch.conf
 test -r /usr/lib/systemd/system/securewatch.service

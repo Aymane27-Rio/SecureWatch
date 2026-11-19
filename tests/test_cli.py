@@ -40,6 +40,7 @@ class SecureWatchCliTests(unittest.TestCase):
         self.assertIn("scan", help_result.stdout)
         self.assertIn("report", help_result.stdout)
         self.assertIn("integrity", help_result.stdout)
+        self.assertIn("doctor", help_result.stdout)
         self.assertEqual(version_result.returncode, 0, version_result.stderr)
         self.assertEqual(version_result.stdout.strip(), "securewatch 0.3.0")
 
@@ -54,6 +55,24 @@ class SecureWatchCliTests(unittest.TestCase):
         self.assertEqual(result, 23)
         self.assertEqual(
             run.call_args.args[0], ["bash", str(ROOT / "scripts/securewatch.sh")]
+        )
+        self.assertEqual(run.call_args.kwargs["cwd"], ROOT)
+
+    def test_doctor_is_available_to_non_root_users_of_the_installed_cli(self):
+        with patch.object(securewatch_cli, "application_root", return_value=ROOT):
+            with patch.object(securewatch_cli, "INSTALLED_ROOT", ROOT):
+                with patch.object(securewatch_cli.os, "geteuid", return_value=1000):
+                    with patch.object(
+                        securewatch_cli.subprocess,
+                        "run",
+                        return_value=SimpleNamespace(returncode=0),
+                    ) as run:
+                        result = securewatch_cli.main(["doctor", "--json"])
+
+        self.assertEqual(result, 0)
+        self.assertEqual(
+            run.call_args.args[0],
+            [sys.executable, str(ROOT / "python/doctor.py"), "--json"],
         )
         self.assertEqual(run.call_args.kwargs["cwd"], ROOT)
 
