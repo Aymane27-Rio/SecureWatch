@@ -868,6 +868,72 @@ class WorkflowSecurityTests(unittest.TestCase):
             'bash /tmp/smoke-test-installed.sh "$SECUREWATCH_RELEASE_VERSION"',
             workflow,
         )
+        self.assertIn("--allow-unsigned-rpm", workflow)
+        self.assertNotIn("--no-gpg-checks", workflow)
+
+    def test_release_checks_the_rpm_on_fedora_and_opensuse(self):
+        workflow = (ROOT / ".github" / "workflows" / "release.yml").read_text(
+            encoding="utf-8"
+        )
+        release_notes = (ROOT / "packaging" / "release-notes.md").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("opensuse/tumbleweed@sha256:", workflow)
+        self.assertIn("fedora:45@sha256:", workflow)
+        self.assertIn("packaging/render-release-notes.sh", workflow)
+        self.assertIn("@RPM_VERSION@", release_notes)
+        self.assertIn("@RPM_RELEASE@", release_notes)
+        self.assertIn("@RELEASE_CHANNEL@", release_notes)
+        self.assertIn("sudo zypper install", release_notes)
+        self.assertIn("--allow-unsigned-rpm", workflow)
+        self.assertNotIn("--no-gpg-checks", workflow)
+
+    def test_release_note_renderer_formats_stable_and_prerelease_assets(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            for version, channel, rpm_release in (
+                ("0.4.0", "stable release", "1"),
+                ("0.4.0-alpha.1", "pre-release", "0.alpha.1"),
+            ):
+                output = root / f"release-{version}.md"
+                result = subprocess.run(
+                    [
+                        "bash",
+                        str(ROOT / "packaging" / "render-release-notes.sh"),
+                        version,
+                        str(output),
+                    ],
+                    capture_output=True,
+                    check=False,
+                    text=True,
+                )
+
+                self.assertEqual(result.returncode, 0, result.stderr)
+                notes = output.read_text(encoding="utf-8")
+                self.assertIn(f"This {channel} makes SecureWatch", notes)
+                self.assertIn(
+                    f"securewatch-{version.split('-')[0]}-{rpm_release}.noarch.rpm",
+                    notes,
+                )
+                self.assertNotRegex(notes, r"@[A-Z_]+@")
+
+    def test_release_note_renderer_rejects_invalid_versions(self):
+        with tempfile.TemporaryDirectory() as temp:
+            output = Path(temp) / "release.md"
+            result = subprocess.run(
+                [
+                    "bash",
+                    str(ROOT / "packaging" / "render-release-notes.sh"),
+                    "0.4.0/unsafe",
+                    str(output),
+                ],
+                capture_output=True,
+                check=False,
+                text=True,
+            )
+
+        self.assertEqual(result.returncode, 2)
+        self.assertFalse(output.exists())
 
     def test_ci_runs_the_source_audits_on_alpine(self):
         workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text(

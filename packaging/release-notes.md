@@ -1,11 +1,12 @@
 ## SecureWatch @VERSION@
 
-This stable release makes SecureWatch available as a native Linux package for Debian-family systems and Fedora. The installable package provides the local audit CLI; the Docker Compose dashboard remains optional.
+This @RELEASE_CHANNEL@ makes SecureWatch available as a native Linux package for Debian-family systems, Fedora, and openSUSE Tumbleweed. The installable package provides the local audit CLI; the Docker Compose dashboard remains optional.
 
 ### Install
 
-- Debian or Ubuntu: `sudo apt install ./securewatch_@VERSION@_all.deb`
-- Fedora: `sudo dnf install ./securewatch-@VERSION@-1.noarch.rpm`
+- Debian, Ubuntu, or Kali: `sudo apt install ./securewatch_@VERSION@_all.deb`
+- Fedora: `sudo dnf install ./securewatch-@RPM_VERSION@-@RPM_RELEASE@.noarch.rpm`
+- openSUSE Tumbleweed: `sudo zypper install ./securewatch-@RPM_VERSION@-@RPM_RELEASE@.noarch.rpm`
 
 ### Run
 

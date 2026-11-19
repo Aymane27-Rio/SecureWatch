@@ -98,14 +98,14 @@ The default baseline tracks existing files among `/etc/passwd`, `/etc/group`, `/
 
 ## Installable packages
 
-SecureWatch packages provide the local audit CLI and optional systemd timer; they do not install or start the web dashboard. Debian-family packages are built with `dpkg-deb`, and Fedora packages with `rpmbuild`:
+SecureWatch packages provide the local audit CLI and optional systemd timer; they do not install or start the web dashboard. Debian-family packages are built with `dpkg-deb`; RPM packages are built with `rpmbuild` and tested on Fedora and openSUSE Tumbleweed:
 
 ```bash
 make package-deb VERSION=0.3.0 OUTPUT=dist
 make package-rpm VERSION=0.3.0 OUTPUT=dist
 ```
 
-After a package release is published, install the downloaded asset with your system package manager. For the planned `v0.3.0` release, the commands are `sudo apt install ./securewatch_0.3.0_all.deb` on Debian or Ubuntu and `sudo dnf install ./securewatch-0.3.0-1.noarch.rpm` on Fedora. The Debian package requires Python 3.11 or later. Run `sudo securewatch scan` for a complete host audit. Reports and scan data are stored with owner-only permissions under `/var/lib/securewatch`. The hourly timer is opt-in: enable it with `sudo systemctl enable --now securewatch.timer`. Package upgrades preserve `/etc/securewatch/securewatch.conf` and generated reports. Package removal also leaves generated reports and scan data in place.
+After a package release is published, install the downloaded asset with your system package manager. For the `v0.3.0` release, use `sudo apt install ./securewatch_0.3.0_all.deb` on Debian or Ubuntu or `sudo dnf install ./securewatch-0.3.0-1.noarch.rpm` on Fedora. Development CI also installs and exercises the RPM on openSUSE Tumbleweed; the next package release will include its exact RPM install command. The Debian package requires Python 3.11 or later. Run `sudo securewatch scan` for a complete host audit. Reports and scan data are stored with owner-only permissions under `/var/lib/securewatch`. The hourly timer is opt-in: enable it with `sudo systemctl enable --now securewatch.timer`. Package upgrades preserve `/etc/securewatch/securewatch.conf` and generated reports. Package removal also leaves generated reports and scan data in place.
 
 The Debian package recommends AIDE, rkhunter, Nmap, and network utilities for optional checks. Fedora's package recommends the equivalent Fedora packages. Missing optional tools are reported in scan output.
 
@@ -140,7 +140,7 @@ make venv
 make test
 ```
 
-The unit tests use temporary logs, reports, and databases; they do not scan the development machine. CI also builds packages twice to check repeatability and install-tests the Debian package on Debian and Ubuntu and the RPM on Fedora, including integrity-baseline setup, a scan, and an HTML report in each environment.
+The unit tests use temporary logs, reports, and databases; they do not scan the development machine. CI builds packages twice to check repeatability and install-tests the Debian package on Debian, Ubuntu, and Kali and the RPM on Fedora and openSUSE Tumbleweed, including integrity-baseline setup, a scan, and an HTML report in each environment.
 
 To run the actual host scan manually, use `make run`; it reads system state and writes generated files under `data/`.
 
@@ -148,7 +148,7 @@ To run the actual host scan manually, use `make run`; it reads system state and 
 
 Release versions use semantic version tags. Use a suffix for pre-releases, for example `v0.2.0-alpha.1` or `v0.2.0-rc.1`; use `v0.2.0` for a stable release.
 
-Pushing a `v*` tag runs the release workflow. The tag must match `VERSION`; the workflow rebuilds and install-tests both packages, generates checksums, and creates a GitHub draft with install instructions and release notes. Tags containing a suffix are marked as pre-releases; a tag such as `v0.3.0` creates a stable release draft. Review the draft and publish it from the GitHub Releases page.
+Pushing a `v*` tag runs the release workflow. The tag must match `VERSION`; the workflow rebuilds and install-tests the Debian package and tests the RPM on Fedora and openSUSE Tumbleweed, generates checksums, and creates a GitHub draft with version-correct install instructions and release notes. Tags containing a suffix are marked as pre-releases; a tag such as `v0.3.0` creates a stable release draft. Review the draft and publish it from the GitHub Releases page.
 
 ## Project layout
 
