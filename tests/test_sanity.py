@@ -381,7 +381,7 @@ class HostPortabilityTests(unittest.TestCase):
                     self.assertIn("AIDE is unavailable", result.stdout)
                 elif manager == "pacman":
                     self.assertIn("pacman-contrib", package_commands)
-                    self.assertIn("fakeroot", package_commands)
+                    self.assertNotIn("fakeroot", package_commands)
 
     def test_dependency_installer_prefers_dnf5_when_available(self):
         with tempfile.TemporaryDirectory() as temp:

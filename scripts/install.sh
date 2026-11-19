@@ -170,7 +170,7 @@ esac
 # These scanners are optional and have uneven repository coverage across distros.
 optional_packages=(aide rkhunter nmap)
 if [[ "$package_manager" == pacman ]]; then
-  optional_packages+=(pacman-contrib fakeroot)
+  optional_packages+=(pacman-contrib)
 fi
 for optional_package in "${optional_packages[@]}"; do
   install_optional "$optional_package"
