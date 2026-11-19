@@ -5,6 +5,7 @@ SecureWatch is a modular Linux security monitoring toolkit. It runs local checks
 ## Features
 
 - Bash checks for accounts, listening ports, firewall state, package updates, AIDE, and rkhunter.
+- A built-in file-integrity baseline that hashes critical configuration files and checks their content, ownership, and permissions.
 - Scan failures and malformed check output are recorded in reports and called out in the terminal, so incomplete coverage is visible.
 - SSH and sudo anomaly parsing with structured JSON events.
 - HTML reports and a FastAPI service that stores reports and events in SQLite.
@@ -77,6 +78,18 @@ make exporter
 
 The source CLI supports `scan`, `report`, `--help`, and `--version`. `report` renders the latest scan as HTML; pass `--input PATH` or `--output PATH` to select files explicitly. Source runs store private reports under the repository's `data/` directory. The web dashboard remains optional and can still be run with Docker Compose.
 
+## File integrity baseline
+
+Initialize the built-in baseline once before relying on file-integrity findings. Use `--strict` when automation should fail on drift or incomplete verification:
+
+```bash
+sudo securewatch integrity init
+sudo securewatch scan
+sudo securewatch integrity verify --strict
+```
+
+The default baseline tracks existing files among `/etc/passwd`, `/etc/group`, `/etc/shadow`, `/etc/gshadow`, `/etc/sudoers`, and `/etc/ssh/sshd_config`. To track a custom set instead, pass one or more `--path` options, for example `securewatch integrity init --path /etc/securewatch/securewatch.conf --path /etc/ssh/sshd_config`. An existing baseline is never replaced unless `--force` is supplied; use that only after reviewing the current changes. Scans report a missing baseline as incomplete instead of claiming file integrity is clean. Baselines are stored with owner-only permissions and contain hashes and metadata, not file contents. The baseline is local state and a privileged attacker can replace it, so keep a protected off-host copy if you need tamper evidence against root-level compromise.
+
 ## Installable packages
 
 SecureWatch packages provide the local audit CLI and optional systemd timer; they do not install or start the web dashboard. Debian-family packages are built with `dpkg-deb`, and Fedora packages with `rpmbuild`:
@@ -121,7 +134,7 @@ make venv
 make test
 ```
 
-The unit tests use temporary logs, reports, and databases; they do not scan the development machine. CI also builds packages twice to check repeatability and install-tests the Debian package on Debian and Ubuntu and the RPM on Fedora, including a scan and HTML report in each environment.
+The unit tests use temporary logs, reports, and databases; they do not scan the development machine. CI also builds packages twice to check repeatability and install-tests the Debian package on Debian and Ubuntu and the RPM on Fedora, including integrity-baseline setup, a scan, and an HTML report in each environment.
 
 To run the actual host scan manually, use `make run`; it reads system state and writes generated files under `data/`.
 
@@ -149,4 +162,4 @@ Pushing a `v*` tag runs the release workflow. The tag must match `VERSION`; the 
 
 ## Security notes
 
-The Compose stack binds its host ports to loopback. Both API implementations require `WEBAPI_API_KEY` for data routes and refuse to start unless it is 64 lowercase hexadecimal characters. The setup command creates the key in an owner-only `.env`, and the file is ignored by Git. The dashboard proxy adds the key server-side so it is not shipped to the browser. Both APIs and the metrics exporter share a report reader that rejects symlinks, caps reports at 10 MiB and 100,000 events by default, and validates event fields; the primary API commits each report atomically, and the exporter maps unknown categories to `other` to limit metric cardinality. Set `WEBAPI_MAX_REPORT_BYTES` to a positive byte count if your generated reports need a different byte limit. The alternate `backend/` service does not enable CORS unless you set a specific comma-separated `SECUREWATCH_CORS_ORIGINS` allowlist. Reports can contain usernames, IP addresses, and other host details. For remote access, put the dashboard behind a TLS-enabled, authenticated reverse proxy and keep the API and monitoring ports private. Review checks and thresholds for your systems before relying on the results.
+The Compose stack binds its host ports to loopback. Both API implementations require `WEBAPI_API_KEY` for data routes and refuse to start unless it is 64 lowercase hexadecimal characters. The setup command creates the key in an owner-only `.env`, and the file is ignored by Git. The dashboard proxy adds the key server-side so it is not shipped to the browser. Both APIs and the metrics exporter share a report reader that rejects symlinks, caps reports at 10 MiB and 100,000 events by default, and validates event fields; the primary API commits each report atomically, and the exporter maps unknown categories to `other` to limit metric cardinality. Set `WEBAPI_MAX_REPORT_BYTES` to a positive byte count if your generated reports need a different byte limit. The alternate `backend/` service does not enable CORS unless you set a specific comma-separated `SECUREWATCH_CORS_ORIGINS` allowlist. Reports can contain usernames, IP addresses, and other host details. File-integrity baselines are owner-only but remain writable by the same privileged account that runs SecureWatch; retain a protected external copy for tamper evidence against root-level compromise. For remote access, put the dashboard behind a TLS-enabled, authenticated reverse proxy and keep the API and monitoring ports private. Review checks and thresholds for your systems before relying on the results.
