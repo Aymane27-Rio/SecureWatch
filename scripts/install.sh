@@ -159,7 +159,7 @@ case "$package_manager" in
     ;;
   pacman)
     install_packages gawk jq curl lsof net-tools inotify-tools util-linux inetutils \
-      python python-pip
+      python python-pip pacman-contrib
     ;;
   apk)
     install_packages bash coreutils gawk jq curl lsof net-tools inotify-tools \
@@ -169,9 +169,6 @@ esac
 
 # These scanners are optional and have uneven repository coverage across distros.
 optional_packages=(aide rkhunter nmap)
-if [[ "$package_manager" == pacman ]]; then
-  optional_packages+=(pacman-contrib)
-fi
 for optional_package in "${optional_packages[@]}"; do
   install_optional "$optional_package"
 done

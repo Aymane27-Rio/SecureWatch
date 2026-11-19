@@ -383,6 +383,39 @@ class HostPortabilityTests(unittest.TestCase):
                     self.assertIn("pacman-contrib", package_commands)
                     self.assertNotIn("fakeroot", package_commands)
 
+    def test_arch_installer_fails_if_required_update_helper_cannot_be_installed(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            bin_dir = root / "bin"
+            bin_dir.mkdir()
+            os_release = root / "os-release"
+            os_release.write_text('ID="arch"\n', encoding="utf-8")
+            log_path = root / "packages.log"
+            self.write_command(bin_dir, "sudo", '#!/bin/bash\nexec "$@"\n')
+            self.write_command(
+                bin_dir,
+                "pacman",
+                "#!/bin/bash\n"
+                'printf "pacman %s\\n" "$*" >> "$PACKAGE_LOG"\n'
+                '[[ " $* " != *" pacman-contrib "* ]] || exit 1\n',
+            )
+            result = subprocess.run(
+                ["/bin/bash", str(ROOT / "scripts" / "install.sh")],
+                env={
+                    "PATH": str(bin_dir),
+                    "PACKAGE_LOG": str(log_path),
+                    "SECUREWATCH_OS_RELEASE_FILE": str(os_release),
+                },
+                capture_output=True,
+                check=False,
+                text=True,
+            )
+            package_commands = log_path.read_text(encoding="utf-8")
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertNotIn("Done.", result.stdout)
+        self.assertIn("pacman-contrib", package_commands)
+
     def test_dependency_installer_prefers_dnf5_when_available(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
