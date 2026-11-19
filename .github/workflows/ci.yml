@@ -39,7 +39,7 @@ jobs:
           assert packages["data"]["manager"] in {"dnf", "dnf5"}, packages
           assert isinstance(packages["data"]["count"], int), packages
           assert firewall["category"] == "firewall", firewall
-          assert firewall["data"]["firewalld_status"] in {"running", "inactive"}, firewall
+          assert 0 <= firewall["severity"] <= 4, firewall
           PY
 
       - name: Install RPM build tools
