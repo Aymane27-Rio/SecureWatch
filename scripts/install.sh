@@ -31,6 +31,10 @@ package_manager=""
 read -r -a distro_candidates <<< "$os_id $os_like"
 for distro in "${distro_candidates[@]}"; do
   case "$distro" in
+    alpine)
+      package_manager=apk
+      break
+      ;;
     debian|ubuntu|kali|linuxmint|pop|elementary|zorin|raspbian)
       package_manager=apt
       break
@@ -51,7 +55,7 @@ for distro in "${distro_candidates[@]}"; do
 done
 
 if [[ -z "$package_manager" ]]; then
-  printf 'Unsupported Linux distribution (ID=%s ID_LIKE=%s). Supported source installers: Debian/Ubuntu/Kali, Fedora/RHEL-family, openSUSE, and Arch-family.\n' \
+  printf 'Unsupported Linux distribution (ID=%s ID_LIKE=%s). Supported source installers: Alpine, Debian/Ubuntu/Kali, Fedora/RHEL-family, openSUSE, and Arch-family.\n' \
     "${os_id:-unknown}" "${os_like:-unknown}" >&2
   exit 1
 fi
@@ -88,6 +92,13 @@ case "$package_manager" in
       exit 1
     }
     ;;
+  apk)
+    package_command=(apk)
+    command -v apk >/dev/null 2>&1 || {
+      echo "APK was selected from $OS_RELEASE_FILE, but apk is not installed." >&2
+      exit 1
+    }
+    ;;
 esac
 
 run_privileged() {
@@ -95,8 +106,10 @@ run_privileged() {
     "$@"
   elif command -v sudo >/dev/null 2>&1; then
     sudo "$@"
+  elif command -v doas >/dev/null 2>&1; then
+    doas "$@"
   else
-    echo "Root privileges are required; run this installer with sudo or as root." >&2
+    echo "Root privileges are required; run this installer with sudo, doas, or as root." >&2
     return 1
   fi
 }
@@ -115,6 +128,9 @@ install_packages() {
     pacman)
       # Do not run a partial system upgrade. Keep Arch systems updated with pacman -Syu.
       run_privileged "${package_command[@]}" -S --needed --noconfirm "$@"
+      ;;
+    apk)
+      run_privileged "${package_command[@]}" add --no-cache "$@"
       ;;
   esac
 }
@@ -145,6 +161,10 @@ case "$package_manager" in
     install_packages gawk jq curl lsof net-tools inotify-tools util-linux inetutils \
       python python-pip
     ;;
+  apk)
+    install_packages bash coreutils gawk jq curl lsof net-tools inotify-tools \
+      util-linux iproute2 python3 py3-pip
+    ;;
 esac
 
 # These scanners are optional and have uneven repository coverage across distros.
@@ -156,4 +176,9 @@ for optional_package in "${optional_packages[@]}"; do
   install_optional "$optional_package"
 done
 
-echo "Done. Initialize AIDE using your distribution's AIDE setup instructions before relying on integrity scans."
+echo "Done."
+if command -v aide >/dev/null 2>&1; then
+  echo "Initialize AIDE using your distribution's setup instructions before relying on integrity scans."
+else
+  echo "AIDE is unavailable; integrity database checks will be reported as unavailable."
+fi

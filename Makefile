@@ -21,7 +21,7 @@ help:
 	@echo "  clean          - Remove venv and generated artifacts"
 
 install-deps:
-	sudo bash scripts/install.sh
+	bash scripts/install.sh
 
 venv:
 	test -d $(VENV) || $(PY) -m venv $(VENV)

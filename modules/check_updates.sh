@@ -55,6 +55,21 @@ elif command -v pacman >/dev/null 2>&1; then
       *) emit_failure "$manager" "$update_status"; exit 0 ;;
     esac
   fi
+elif command -v apk >/dev/null 2>&1; then
+  manager=apk
+  if apk_output=$(LC_ALL=C apk update 2>&1); then
+    if updates_output=$(LC_ALL=C apk list --upgradable 2>&1); then
+      updates=$(printf '%s\n' "$updates_output" | awk '/\[upgradable from:/ {count++} END {print count+0}')
+    else
+      update_status=$?
+      emit_failure "$manager" "$update_status"
+      exit 0
+    fi
+  else
+    update_status=$?
+    emit_failure "$manager" "$update_status"
+    exit 0
+  fi
 else
   echo "{\"ts\":\"$TS\",\"host\":\"$HOST\",\"category\":\"packages\",\"severity\":1,\"summary\":\"No supported package manager found\",\"data\":{}}"
   exit 0

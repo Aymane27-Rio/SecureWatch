@@ -314,6 +314,7 @@ class HostPortabilityTests(unittest.TestCase):
 
     def test_dependency_installer_selects_supported_distro_families(self):
         cases = (
+            ("alpine", "", "apk", "apk add --no-cache"),
             ("debian", "", "apt-get", "apt-get update"),
             ("kali", "debian", "apt-get", "apt-get install -y --no-install-recommends"),
             ("fedora", "", "dnf", "dnf install -y"),
@@ -370,7 +371,15 @@ class HostPortabilityTests(unittest.TestCase):
                 self.assertIn("nmap", package_commands)
                 self.assertNotIn("ufw", package_commands)
                 self.assertNotIn("firewalld", package_commands)
-                if manager == "pacman":
+                self.assertNotIn("nftables", package_commands)
+                if manager == "apk":
+                    self.assertIn("bash", package_commands)
+                    self.assertIn("coreutils", package_commands)
+                    self.assertIn("util-linux", package_commands)
+                    self.assertIn("python3", package_commands)
+                    self.assertIn("py3-pip", package_commands)
+                    self.assertIn("AIDE is unavailable", result.stdout)
+                elif manager == "pacman":
                     self.assertIn("pacman-contrib", package_commands)
                     self.assertIn("fakeroot", package_commands)
 
@@ -404,6 +413,40 @@ class HostPortabilityTests(unittest.TestCase):
             package_commands = log_path.read_text(encoding="utf-8")
             self.assertIn("dnf5 install -y", package_commands)
             self.assertNotIn("dnf install -y", package_commands)
+
+    def test_dependency_installer_uses_doas_when_sudo_is_missing(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            bin_dir = root / "bin"
+            bin_dir.mkdir()
+            os_release = root / "os-release"
+            os_release.write_text('ID="alpine"\n', encoding="utf-8")
+            log_path = root / "packages.log"
+            self.write_command(
+                bin_dir,
+                "doas",
+                '#!/bin/bash\nprintf "doas %s\\n" "$*" >> "$PACKAGE_LOG"\nexec "$@"\n',
+            )
+            self.write_command(
+                bin_dir,
+                "apk",
+                '#!/bin/bash\nprintf "apk %s\\n" "$*" >> "$PACKAGE_LOG"\n',
+            )
+            result = subprocess.run(
+                ["/bin/bash", str(ROOT / "scripts" / "install.sh")],
+                env={
+                    "PATH": str(bin_dir),
+                    "PACKAGE_LOG": str(log_path),
+                    "SECUREWATCH_OS_RELEASE_FILE": str(os_release),
+                },
+                capture_output=True,
+                check=False,
+                text=True,
+            )
+            package_commands = log_path.read_text(encoding="utf-8")
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("doas apk add --no-cache bash", package_commands)
 
     def test_dependency_installer_continues_when_optional_tools_are_unavailable(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -474,24 +517,32 @@ class HostPortabilityTests(unittest.TestCase):
                 expected_args = "--non-interactive list-updates"
             elif manager == "pacman":
                 expected_args = ""
+            elif manager == "apk":
+                expected_args = "list --upgradable"
             else:
                 expected_args = "list --upgradable"
             command_name = "checkupdates" if manager == "pacman" else manager
             if manager == "pacman":
                 self.write_command(bin_dir, "pacman", "#!/bin/bash\nexit 0\n")
-            self.write_command(
-                bin_dir,
-                command_name,
+            mock_command = (
                 "#!/bin/bash\n"
                 'if [ "$1" = --version ]; then printf \'%s\\n\' "$DNF_VERSION"; exit 0; fi\n'
+            )
+            if manager == "apk":
+                mock_command += (
+                    'if [ "$*" = update ]; then exit "$APK_UPDATE_EXIT_CODE"; fi\n'
+                )
+            mock_command += (
                 'if [ "$*" != "$EXPECTED_ARGS" ]; then echo "unexpected arguments: $*" >&2; exit 99; fi\n'
                 "printf '%s\\n' \"$UPDATE_OUTPUT\"\n"
-                'exit "$UPDATE_EXIT_CODE"\n',
+                'exit "$UPDATE_EXIT_CODE"\n'
             )
+            self.write_command(bin_dir, command_name, mock_command)
             env = {
                 "PATH": str(bin_dir),
                 "UPDATE_OUTPUT": output,
                 "UPDATE_EXIT_CODE": str(exit_code),
+                "APK_UPDATE_EXIT_CODE": "0",
                 "DNF_VERSION": dnf_version,
                 "EXPECTED_ARGS": expected_args,
                 "LC_ALL": "C",
@@ -516,6 +567,46 @@ class HostPortabilityTests(unittest.TestCase):
 
         self.assertEqual(event["severity"], 1)
         self.assertEqual(event["data"], {"count": 2, "manager": "apt"})
+
+    def test_apk_update_check_refreshes_indexes_and_counts_upgrades(self):
+        updates = self.run_update_check(
+            "apk",
+            "alpha-1.1-r0 x86_64 {alpha} [upgradable from: 1.0-r0]\n"
+            "beta-2.2-r0 x86_64 {beta} [upgradable from: 2.1-r0]",
+            0,
+        )
+        clean = self.run_update_check("apk", "", 0)
+        failure = self.run_update_check("apk", "repository unavailable", 7)
+
+        self.assertEqual(updates["data"], {"count": 2, "manager": "apk"})
+        self.assertEqual(clean["data"], {"count": 0, "manager": "apk"})
+        self.assertEqual(failure["severity"], 2)
+        self.assertEqual(failure["data"]["exit_code"], 7)
+
+    def test_apk_update_check_reports_index_refresh_failures(self):
+        with tempfile.TemporaryDirectory() as temp:
+            bin_dir = Path(temp)
+            self.add_system_command_links(bin_dir)
+            self.write_command(
+                bin_dir,
+                "apk",
+                "#!/bin/bash\n"
+                'if [ "$*" = update ]; then exit 8; fi\n'
+                'echo "list command should not run" >&2\n'
+                "exit 99\n",
+            )
+            result = subprocess.run(
+                ["/bin/bash", str(ROOT / "modules" / "check_updates.sh")],
+                env={"PATH": str(bin_dir)},
+                capture_output=True,
+                check=False,
+                text=True,
+            )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        event = json.loads(result.stdout)
+        self.assertEqual(event["severity"], 2)
+        self.assertEqual(event["data"], {"manager": "apk", "exit_code": 8})
 
     def test_dnf_update_check_counts_updates_and_reports_errors(self):
         updates = self.run_update_check(
@@ -1045,12 +1136,17 @@ class ContainerImagePolicyTests(unittest.TestCase):
 
 
 class WorkflowSecurityTests(unittest.TestCase):
-    def test_ci_covers_kali_arch_and_opensuse_with_digest_pins(self):
+    def test_ci_covers_alpine_kali_arch_and_opensuse_with_digest_pins(self):
         workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text(
             encoding="utf-8"
         )
 
         self.assertIn("'feat/**'", workflow)
+        self.assertRegex(
+            workflow,
+            r"(?ms)^  alpine-host-support:\n.*?alpine:3\.24\.4@sha256:[0-9a-f]{64}",
+        )
+        self.assertIn("docker run --rm -i --network=host", workflow)
         self.assertRegex(
             workflow,
             r"(?ms)^  kali-package:\n.*?image: kalilinux/kali-rolling@sha256:[0-9a-f]{64}",

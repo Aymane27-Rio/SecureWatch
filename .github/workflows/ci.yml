@@ -148,6 +148,55 @@ jobs:
           apt-get remove -y securewatch
           test -n "$(find /var/lib/securewatch/logs -maxdepth 1 -type f -name 'events_*.json' -print -quit)"
 
+  alpine-host-support:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install host dependencies and run a local audit on Alpine
+        run: |
+          docker run --rm -i --network=host \
+            --volume "$GITHUB_WORKSPACE:/workspace:ro" \
+            --workdir /workspace \
+            alpine:3.24.4@sha256:f59abe656b692d901e184be3445e084786602108599d2a51d229c0f5a48c71bf \
+            sh -s <<'ALPINE_SCRIPT'
+          set -eu
+          apk add --no-cache bash
+          bash scripts/install.sh
+          bash modules/check_updates.sh > /tmp/securewatch-alpine-packages.json
+          bash modules/firewall_status.sh > /tmp/securewatch-alpine-firewall.json
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          packages = json.loads(Path("/tmp/securewatch-alpine-packages.json").read_text())
+          firewall = json.loads(Path("/tmp/securewatch-alpine-firewall.json").read_text())
+          assert packages["category"] == "packages", packages
+          assert packages["data"]["manager"] == "apk", packages
+          assert isinstance(packages["data"]["count"], int), packages
+          assert firewall["category"] == "firewall", firewall
+          assert 0 <= firewall["severity"] <= 4, firewall
+          PY
+          export BASE_DIR=/tmp/securewatch-alpine
+          python3 bin/securewatch scan
+          report="$(find "$BASE_DIR/data/logs" -maxdepth 1 -type f -name 'events_*.json' -print -quit)"
+          test -n "$report"
+          python3 - "$report" <<'PY'
+          import json
+          import sys
+
+          with open(sys.argv[1], encoding="utf-8") as report:
+              events = json.load(report)
+          assert isinstance(events, list), events
+          assert any(
+              event.get("category") == "packages"
+              and event.get("data", {}).get("manager") == "apk"
+              for event in events
+          ), events
+          PY
+          ALPINE_SCRIPT
+
   opensuse-host-support:
     runs-on: ubuntu-latest
     container:
