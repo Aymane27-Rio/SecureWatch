@@ -857,6 +857,14 @@ class WorkflowSecurityTests(unittest.TestCase):
         self.assertIn("kalilinux/kali-rolling@sha256:", workflow)
         self.assertIn('bash packaging/smoke-test-installed.sh "$version"', workflow)
 
+    def test_ci_runs_the_source_audits_on_alpine(self):
+        workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("  alpine-source-audit:\n", workflow)
+        self.assertIn("alpine:3.24.4@sha256:", workflow)
+        self.assertIn("Only the root account uses UID 0", workflow)
+
     def test_github_actions_are_pinned_to_full_commit_shas(self):
         workflow_paths = sorted((ROOT / ".github" / "workflows").glob("*.yml"))
         action_refs = []

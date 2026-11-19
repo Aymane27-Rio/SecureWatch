@@ -243,3 +243,52 @@ jobs:
 
       - name: Build dashboard
         run: npm run build
+
+  alpine-source-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Run source audits on Alpine Linux
+        run: |
+          docker run --rm -i --network=host \
+            --volume "$GITHUB_WORKSPACE:/workspace:ro" \
+            --workdir /workspace \
+            alpine:3.24.4@sha256:f59abe656b692d901e184be3445e084786602108599d2a51d229c0f5a48c71bf \
+            sh -s <<'ALPINE_SCRIPT'
+          set -eu
+          apk add --no-cache bash python3 util-linux coreutils
+          install -d -m 700 /tmp/securewatch-alpine/logs /tmp/securewatch-alpine/reports /tmp/securewatch-alpine/state
+          cat > /tmp/securewatch-alpine/securewatch.conf <<'CONFIG'
+          BASE_DIR="/tmp/securewatch-alpine"
+          LOG_DIR="$BASE_DIR/logs"
+          REPORT_DIR="$BASE_DIR/reports"
+          STATE_DIR="$BASE_DIR/state"
+          INTEGRITY_BASELINE="$STATE_DIR/integrity-baseline.json"
+          SSH_FAILED_THRESHOLD=5
+          CONFIG
+          export SECUREWATCH_CONFIG=/tmp/securewatch-alpine/securewatch.conf
+          python3 bin/securewatch integrity init --path /etc/hostname
+          python3 bin/securewatch scan
+          report="$(find /tmp/securewatch-alpine/logs -maxdepth 1 -type f -name 'events_*.json' -print -quit)"
+          test -n "$report"
+          python3 - "$report" <<'PY'
+          import json
+          import sys
+
+          with open(sys.argv[1], encoding="utf-8") as source:
+              events = json.load(source)
+          assert any(
+              event.get("category") == "integrity" and event.get("severity") == 0
+              for event in events
+          ), events
+          assert any(
+              event.get("category") == "accounts"
+              and event.get("severity") == 0
+              and event.get("summary") == "Only the root account uses UID 0"
+              for event in events
+          ), events
+          assert any(event.get("category") == "ssh" for event in events), events
+          PY
+          ALPINE_SCRIPT
