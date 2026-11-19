@@ -31,7 +31,7 @@ Section: admin
 Priority: optional
 Architecture: all
 Depends: bash, coreutils, curl, gawk, hostname, iproute2, jq, python3 (>= 3.11), util-linux
-Recommends: aide, inotify-tools, lsof, net-tools, nmap, rkhunter, ufw
+Recommends: aide, inotify-tools, lsof, net-tools, nmap, rkhunter
 Maintainer: SecureWatch contributors
 Description: Local Linux security audit and reporting tool
  SecureWatch runs host checks, records structured security events, and

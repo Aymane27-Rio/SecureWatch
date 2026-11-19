@@ -365,10 +365,14 @@ class HostPortabilityTests(unittest.TestCase):
                 self.assertEqual(result.returncode, 0, result.stderr)
                 package_commands = log_path.read_text(encoding="utf-8")
                 self.assertIn(expected, package_commands)
+                self.assertIn("gawk", package_commands)
                 self.assertIn("aide", package_commands)
                 self.assertIn("nmap", package_commands)
+                self.assertNotIn("ufw", package_commands)
+                self.assertNotIn("firewalld", package_commands)
                 if manager == "pacman":
                     self.assertIn("pacman-contrib", package_commands)
+                    self.assertIn("fakeroot", package_commands)
 
     def test_dependency_installer_prefers_dnf5_when_available(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -1041,6 +1045,25 @@ class ContainerImagePolicyTests(unittest.TestCase):
 
 
 class WorkflowSecurityTests(unittest.TestCase):
+    def test_ci_covers_kali_arch_and_opensuse_with_digest_pins(self):
+        workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn("'feat/**'", workflow)
+        self.assertRegex(
+            workflow,
+            r"(?ms)^  kali-package:\n.*?image: kalilinux/kali-rolling@sha256:[0-9a-f]{64}",
+        )
+        self.assertRegex(
+            workflow,
+            r"(?ms)^  opensuse-host-support:\n.*?image: opensuse/tumbleweed@sha256:[0-9a-f]{64}",
+        )
+        self.assertRegex(
+            workflow,
+            r"(?ms)^  arch-host-support:\n.*?image: archlinux@sha256:[0-9a-f]{64}",
+        )
+
     def test_github_actions_are_pinned_to_full_commit_shas(self):
         workflow_paths = sorted((ROOT / ".github" / "workflows").glob("*.yml"))
         action_refs = []

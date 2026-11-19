@@ -130,19 +130,19 @@ install_optional() {
 case "$package_manager" in
   apt)
     run_privileged apt-get update
-    install_packages jq curl lsof net-tools inotify-tools util-linux hostname \
+    install_packages gawk jq curl lsof net-tools inotify-tools util-linux hostname \
       python3 python3-venv python3-pip
     ;;
   dnf)
-    install_packages jq curl lsof net-tools inotify-tools util-linux hostname \
+    install_packages gawk jq curl lsof net-tools inotify-tools util-linux hostname \
       python3 python3-pip
     ;;
   zypper)
-    install_packages jq curl lsof net-tools inotify-tools util-linux hostname \
+    install_packages gawk jq curl lsof net-tools inotify-tools util-linux hostname \
       python3 python3-pip
     ;;
   pacman)
-    install_packages jq curl lsof net-tools inotify-tools util-linux inetutils \
+    install_packages gawk jq curl lsof net-tools inotify-tools util-linux inetutils \
       python python-pip
     ;;
 esac
@@ -150,16 +150,10 @@ esac
 # These scanners are optional and have uneven repository coverage across distros.
 optional_packages=(aide rkhunter nmap)
 if [[ "$package_manager" == pacman ]]; then
-  optional_packages+=(pacman-contrib)
+  optional_packages+=(pacman-contrib fakeroot)
 fi
 for optional_package in "${optional_packages[@]}"; do
   install_optional "$optional_package"
 done
-
-# Installing a firewall implementation does not enable it; keep this best-effort.
-case "$package_manager" in
-  apt|pacman) install_optional ufw ;;
-  dnf|zypper) install_optional firewalld ;;
-esac
 
 echo "Done. Initialize AIDE using your distribution's AIDE setup instructions before relying on integrity scans."
