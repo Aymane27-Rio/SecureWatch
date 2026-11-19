@@ -842,6 +842,12 @@ class ContainerImagePolicyTests(unittest.TestCase):
 
 
 class WorkflowSecurityTests(unittest.TestCase):
+    def test_ci_runs_on_standard_feature_branch_pushes(self):
+        workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text(
+            encoding="utf-8"
+        )
+        self.assertRegex(workflow, r"(?m)^\s*branches:.*'feat/\*\*'")
+
     def test_github_actions_are_pinned_to_full_commit_shas(self):
         workflow_paths = sorted((ROOT / ".github" / "workflows").glob("*.yml"))
         action_refs = []

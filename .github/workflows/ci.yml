@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [ main, feat-web, 'milestone/**' ]
+    branches: [ main, feat-web, 'feat/**', 'milestone/**' ]
   pull_request:
     branches: [ main ]
 
