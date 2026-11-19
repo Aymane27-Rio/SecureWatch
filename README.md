@@ -80,7 +80,7 @@ The source CLI supports `scan`, `report`, `--help`, and `--version`. `report` re
 
 The account check treats the expected `root` account as normal and flags additional accounts assigned UID 0. Malformed or unreadable account data is reported as incomplete instead of being treated as a clean result.
 
-When OpenSSH server is installed, scans inspect its base effective configuration with `sshd -T` and report recommendations for root login, password authentication, empty passwords, public key authentication, and authentication attempt limits. The read-only check does not modify SSH configuration; connection-specific `Match` rules are not evaluated. Missing OpenSSH is reported as an unavailable optional check.
+When OpenSSH server is installed, scans inspect its effective configuration with `sshd -T -C` for four representative connection contexts: root and a regular account (`nobody`), each from loopback and a reserved external IPv4 address, on port 22. This evaluates matching `Match` rules for those samples and reports recommendations for root login, password authentication, empty passwords, public key authentication, and authentication attempt limits. The check is read-only and does not open a network connection or modify SSH configuration. These samples do not exhaust every username, source or destination address, port, IPv6 route, or hostname that may match your rules; review context-specific rules for your environment. Findings identify the sample context they came from. Missing OpenSSH is reported as an unavailable optional check.
 
 ## File integrity baseline
 
