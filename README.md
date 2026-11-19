@@ -4,7 +4,7 @@ SecureWatch is a modular Linux security monitoring toolkit. It runs local checks
 
 ## Features
 
-- Bash checks for accounts, listening ports, firewall state, package updates, AIDE, and rkhunter.
+- Local checks for privileged accounts, listening ports, firewall state, package updates, AIDE, and rkhunter.
 - A built-in file-integrity baseline that hashes critical configuration files and checks their content, ownership, and permissions.
 - Scan failures and malformed check output are recorded in reports and called out in the terminal, so incomplete coverage is visible.
 - SSH and sudo anomaly parsing with structured JSON events.
@@ -77,6 +77,8 @@ make exporter
 ```
 
 The source CLI supports `scan`, `report`, `--help`, and `--version`. `report` renders the latest scan as HTML; pass `--input PATH` or `--output PATH` to select files explicitly. Source runs store private reports under the repository's `data/` directory. The web dashboard remains optional and can still be run with Docker Compose.
+
+The account check treats the expected `root` account as normal and flags additional accounts assigned UID 0. Malformed or unreadable account data is reported as incomplete instead of being treated as a clean result.
 
 ## File integrity baseline
 
