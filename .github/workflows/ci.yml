@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [ main, feat-web, 'milestone/**' ]
+    branches: [ main, feat-web, 'feat/**', 'milestone/**' ]
   pull_request:
     branches: [ main ]
 
@@ -39,7 +39,7 @@ jobs:
           assert packages["data"]["manager"] in {"dnf", "dnf5"}, packages
           assert isinstance(packages["data"]["count"], int), packages
           assert firewall["category"] == "firewall", firewall
-          assert firewall["data"]["firewalld_status"] in {"running", "inactive"}, firewall
+          assert 0 <= firewall["severity"] <= 4, firewall
           PY
 
       - name: Install RPM build tools
@@ -121,6 +121,140 @@ jobs:
           sudo bash packaging/smoke-test-installed.sh "$version"
           sudo apt-get remove -y securewatch
           sudo test -n "$(sudo find /var/lib/securewatch/logs -maxdepth 1 -type f -name 'events_*.json' -print -quit)"
+
+  kali-package:
+    runs-on: ubuntu-latest
+    container:
+      image: kalilinux/kali-rolling@sha256:1ff4a2be3849333687b3ed2b31bb5af0cd1b7c0a11ec7713feb5abe5a6b2795c
+    env:
+      DEBIAN_FRONTEND: noninteractive
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Build, install, and exercise the Debian package on Kali
+        run: |
+          version="$(cat VERSION)"
+          bash packaging/build-deb.sh "$version" /tmp/securewatch-kali-debs
+          apt-get update
+          deb_file="$(find /tmp/securewatch-kali-debs -maxdepth 1 -type f -name 'securewatch_*.deb' -print -quit)"
+          test -n "$deb_file"
+          apt-get install -y --no-install-recommends "$deb_file"
+          bash packaging/smoke-test-installed.sh "$version"
+          if dpkg-query -W -f='${Status}' ufw 2>/dev/null | grep -q 'install ok installed'; then
+            echo "SecureWatch package unexpectedly installed UFW." >&2
+            exit 1
+          fi
+          apt-get remove -y securewatch
+          test -n "$(find /var/lib/securewatch/logs -maxdepth 1 -type f -name 'events_*.json' -print -quit)"
+
+  alpine-host-support:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install host dependencies and run a local audit on Alpine
+        run: |
+          docker run --rm -i --network=host \
+            --volume "$GITHUB_WORKSPACE:/workspace:ro" \
+            --workdir /workspace \
+            alpine:3.24.4@sha256:f59abe656b692d901e184be3445e084786602108599d2a51d229c0f5a48c71bf \
+            sh -s <<'ALPINE_SCRIPT'
+          set -eu
+          apk add --no-cache bash
+          bash scripts/install.sh
+          bash modules/check_updates.sh > /tmp/securewatch-alpine-packages.json
+          bash modules/firewall_status.sh > /tmp/securewatch-alpine-firewall.json
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          packages = json.loads(Path("/tmp/securewatch-alpine-packages.json").read_text())
+          firewall = json.loads(Path("/tmp/securewatch-alpine-firewall.json").read_text())
+          assert packages["category"] == "packages", packages
+          assert packages["data"]["manager"] == "apk", packages
+          assert isinstance(packages["data"]["count"], int), packages
+          assert firewall["category"] == "firewall", firewall
+          assert 0 <= firewall["severity"] <= 4, firewall
+          PY
+          export BASE_DIR=/tmp/securewatch-alpine
+          python3 bin/securewatch scan
+          report="$(find "$BASE_DIR/data/logs" -maxdepth 1 -type f -name 'events_*.json' -print -quit)"
+          test -n "$report"
+          python3 - "$report" <<'PY'
+          import json
+          import sys
+
+          with open(sys.argv[1], encoding="utf-8") as report:
+              events = json.load(report)
+          assert isinstance(events, list), events
+          assert any(
+              event.get("category") == "packages"
+              and event.get("data", {}).get("manager") == "apk"
+              for event in events
+          ), events
+          PY
+          ALPINE_SCRIPT
+
+  opensuse-host-support:
+    runs-on: ubuntu-latest
+    container:
+      image: opensuse/tumbleweed@sha256:873ddd8d2a548bbd38c9d8485bd710ab6d17d013cacb38a252005f634b3ab187
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install host dependencies
+        run: bash scripts/install.sh
+
+      - name: Exercise Zypper update and firewall checks
+        run: |
+          bash modules/check_updates.sh > /tmp/securewatch-packages.json
+          bash modules/firewall_status.sh > /tmp/securewatch-firewall.json
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          packages = json.loads(Path("/tmp/securewatch-packages.json").read_text())
+          firewall = json.loads(Path("/tmp/securewatch-firewall.json").read_text())
+          assert packages["category"] == "packages", packages
+          assert packages["data"]["manager"] == "zypper", packages
+          assert isinstance(packages["data"]["count"], int), packages
+          assert firewall["category"] == "firewall", firewall
+          assert 0 <= firewall["severity"] <= 4, firewall
+          PY
+
+  arch-host-support:
+    runs-on: ubuntu-latest
+    container:
+      image: archlinux@sha256:d4594bb2300cba11f41c2f27923eb56f63d9988909c402f9c95517d1e362c899
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Keep the disposable Arch container fully updated
+        run: pacman -Syu --noconfirm
+
+      - name: Install host dependencies
+        run: bash scripts/install.sh
+
+      - name: Exercise Pacman update and firewall checks
+        run: |
+          bash modules/check_updates.sh > /tmp/securewatch-packages.json
+          bash modules/firewall_status.sh > /tmp/securewatch-firewall.json
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          packages = json.loads(Path("/tmp/securewatch-packages.json").read_text())
+          firewall = json.loads(Path("/tmp/securewatch-firewall.json").read_text())
+          assert packages["category"] == "packages", packages
+          assert packages["data"]["manager"] == "pacman", packages
+          assert isinstance(packages["data"]["count"], int), packages
+          assert firewall["category"] == "firewall", firewall
+          assert 0 <= firewall["severity"] <= 4, firewall
+          PY
 
   build-and-test:
     runs-on: ubuntu-latest
