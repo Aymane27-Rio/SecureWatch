@@ -5,7 +5,7 @@ Summary:        Local Linux security audit and reporting tool
 License:        MIT
 BuildArch:      noarch
 Requires:       bash, coreutils, curl, gawk, hostname, iproute, jq, python3 >= 3.11, util-linux
-Recommends:     aide, firewalld, inotify-tools, lsof, net-tools, nmap, rkhunter
+Recommends:     aide, inotify-tools, lsof, net-tools, nmap, rkhunter
 
 %description
 SecureWatch runs local host checks, records structured security events,

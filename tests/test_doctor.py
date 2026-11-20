@@ -90,7 +90,7 @@ class SecureWatchDoctorTests(unittest.TestCase):
         )
         self.assertIn("Python 3.11 or newer is required", result["warnings"])
 
-    def test_pacman_update_audit_requires_checkupdates(self):
+    def test_pacman_update_audit_requires_checkupdates_and_fakeroot(self):
         with tempfile.TemporaryDirectory() as temporary_directory:
             os_release = Path(temporary_directory) / "os-release"
             os_release.write_text('ID="arch"\n', encoding="utf-8")
@@ -112,17 +112,38 @@ class SecureWatchDoctorTests(unittest.TestCase):
                 python_version=(3, 12, 2),
                 is_root=True,
             )
+            ready = inspect_system(
+                os_release_path=os_release,
+                command_lookup=self.command_lookup(
+                    {
+                        "bash",
+                        "flock",
+                        "python3",
+                        "pacman",
+                        "checkupdates",
+                        "fakeroot",
+                    }
+                ),
+                ssh_server_lookup=lambda: None,
+                python_version=(3, 12, 2),
+                is_root=True,
+            )
 
         self.assertFalse(
             without_helper["optional_checks"]["Package update audit"]["available"]
         )
-        self.assertTrue(
+        self.assertFalse(
             with_helper["optional_checks"]["Package update audit"]["available"]
         )
-        self.assertEqual(
-            with_helper["optional_checks"]["Package update audit"]["commands"],
-            ["pacman", "checkupdates"],
+        self.assertIn(
+            "Pacman package update audit requires checkupdates and fakeroot",
+            with_helper["warnings"],
         )
+        self.assertEqual(
+            ready["optional_checks"]["Package update audit"]["commands"],
+            ["pacman", "checkupdates", "fakeroot"],
+        )
+        self.assertTrue(ready["optional_checks"]["Package update audit"]["available"])
 
     def test_handles_unreadable_or_oversized_os_release(self):
         with tempfile.TemporaryDirectory() as temporary_directory:

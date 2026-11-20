@@ -8,7 +8,7 @@ PYTHON := $(VENV)/bin/python
 
 help:
 	@echo "Targets:"
-	@echo "  install-deps   - Install system packages via apt (Debian/Ubuntu/Kali) or dnf (Fedora)"
+	@echo "  install-deps   - Install system packages via apt, dnf, zypper, or pacman"
 	@echo "  venv           - Create Python venv and install requirements"
 	@echo "  cli            - Show SecureWatch command help"
 	@echo "  run            - Run SecureWatch one-off scan"
@@ -22,7 +22,7 @@ help:
 	@echo "  clean          - Remove venv and generated artifacts"
 
 install-deps:
-	sudo bash scripts/install.sh
+	bash scripts/install.sh
 
 venv:
 	test -d $(VENV) || $(PY) -m venv $(VENV)

@@ -117,10 +117,15 @@ def inspect_system(
         None,
     )
     update_commands = [update_manager] if update_manager else []
-    if update_manager == "pacman" and command_lookup("checkupdates"):
-        update_commands.append("checkupdates")
+    if update_manager == "pacman":
+        update_commands.extend(
+            command
+            for command in ("checkupdates", "fakeroot")
+            if command_lookup(command)
+        )
     package_update_available = bool(update_manager) and (
-        update_manager != "pacman" or "checkupdates" in update_commands
+        update_manager != "pacman"
+        or {"checkupdates", "fakeroot"}.issubset(update_commands)
     )
     optional_checks["Package update audit"] = {
         "available": package_update_available,
@@ -141,6 +146,10 @@ def inspect_system(
         warnings.append("Required commands missing: " + ", ".join(missing_commands))
     if not is_root:
         warnings.append("Run as root for the most complete host audit")
+    if update_manager == "pacman" and not package_update_available:
+        warnings.append(
+            "Pacman package update audit requires checkupdates and fakeroot"
+        )
     for label, result in optional_checks.items():
         if not result["available"]:
             warnings.append(f"Optional check unavailable: {label}")
