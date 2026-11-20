@@ -102,7 +102,7 @@ jobs:
           rpm_file="${rpm_files[0]}"
           test -n "$rpm_file"
           test -f "$rpm_file"
-          zypper --non-interactive --no-gpg-checks install --no-recommends "$rpm_file"
+          zypper --non-interactive install --allow-unsigned-rpm --no-recommends "$rpm_file"
           bash /tmp/smoke-test-installed.sh "$SECUREWATCH_RELEASE_VERSION"
           SH
 
