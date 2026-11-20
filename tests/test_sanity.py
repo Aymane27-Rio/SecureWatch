@@ -924,6 +924,7 @@ class ShellScriptTests(unittest.TestCase):
                 "rkhunter_run.sh",
                 "aide_check.sh",
                 "file_integrity.sh",
+                "ssh_hardening.sh",
             )
             for module_name in module_names:
                 module_body = 'printf \'{"severity":0,"category":"test"}\\n\'\n'
@@ -1169,6 +1170,106 @@ class ContainerImagePolicyTests(unittest.TestCase):
 
 
 class WorkflowSecurityTests(unittest.TestCase):
+    def test_ci_runs_on_standard_feature_branch_pushes(self):
+        workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text(
+            encoding="utf-8"
+        )
+        self.assertRegex(workflow, r"(?m)^\s*branches:.*'feat/\*\*'")
+
+    def test_ci_install_tests_the_debian_package_on_kali(self):
+        workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("  kali-package:\n", workflow)
+        self.assertIn("kalilinux/kali-rolling@sha256:", workflow)
+        self.assertIn('bash packaging/smoke-test-installed.sh "$version"', workflow)
+
+    def test_ci_install_tests_the_fedora_rpm_on_opensuse(self):
+        workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("  opensuse-rpm-package:\n", workflow)
+        self.assertIn("opensuse/tumbleweed@sha256:", workflow)
+        self.assertIn("fedora:45@sha256:", workflow)
+        self.assertIn(
+            'bash /tmp/smoke-test-installed.sh "$SECUREWATCH_RELEASE_VERSION"',
+            workflow,
+        )
+        self.assertIn("--allow-unsigned-rpm", workflow)
+        self.assertNotIn("--no-gpg-checks", workflow)
+
+    def test_release_checks_the_rpm_on_fedora_and_opensuse(self):
+        workflow = (ROOT / ".github" / "workflows" / "release.yml").read_text(
+            encoding="utf-8"
+        )
+        release_notes = (ROOT / "packaging" / "release-notes.md").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("opensuse/tumbleweed@sha256:", workflow)
+        self.assertIn("fedora:45@sha256:", workflow)
+        self.assertIn("packaging/render-release-notes.sh", workflow)
+        self.assertIn("@RPM_VERSION@", release_notes)
+        self.assertIn("@RPM_RELEASE@", release_notes)
+        self.assertIn("@RELEASE_CHANNEL@", release_notes)
+        self.assertIn("sudo zypper install", release_notes)
+        self.assertIn("--allow-unsigned-rpm", workflow)
+        self.assertNotIn("--no-gpg-checks", workflow)
+
+    def test_release_note_renderer_formats_stable_and_prerelease_assets(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            for version, channel, rpm_release in (
+                ("0.4.0", "stable release", "1"),
+                ("0.4.0-alpha.1", "pre-release", "0.alpha.1"),
+            ):
+                output = root / f"release-{version}.md"
+                result = subprocess.run(
+                    [
+                        "bash",
+                        str(ROOT / "packaging" / "render-release-notes.sh"),
+                        version,
+                        str(output),
+                    ],
+                    capture_output=True,
+                    check=False,
+                    text=True,
+                )
+
+                self.assertEqual(result.returncode, 0, result.stderr)
+                notes = output.read_text(encoding="utf-8")
+                self.assertIn(f"This {channel} makes SecureWatch", notes)
+                self.assertIn(
+                    f"securewatch-{version.split('-')[0]}-{rpm_release}.noarch.rpm",
+                    notes,
+                )
+                self.assertNotRegex(notes, r"@[A-Z_]+@")
+
+    def test_release_note_renderer_rejects_invalid_versions(self):
+        with tempfile.TemporaryDirectory() as temp:
+            output = Path(temp) / "release.md"
+            result = subprocess.run(
+                [
+                    "bash",
+                    str(ROOT / "packaging" / "render-release-notes.sh"),
+                    "0.4.0/unsafe",
+                    str(output),
+                ],
+                capture_output=True,
+                check=False,
+                text=True,
+            )
+
+        self.assertEqual(result.returncode, 2)
+        self.assertFalse(output.exists())
+
+    def test_ci_runs_the_source_audits_on_alpine(self):
+        workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("  alpine-source-audit:\n", workflow)
+        self.assertIn("alpine:3.24.4@sha256:", workflow)
+        self.assertIn("Only the root account uses UID 0", workflow)
+
     def test_ci_covers_alpine_kali_arch_and_opensuse_with_digest_pins(self):
         workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text(
             encoding="utf-8"

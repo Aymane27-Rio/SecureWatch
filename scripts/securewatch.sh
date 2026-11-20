@@ -13,6 +13,14 @@ if [[ ! -r "$CONFIG_FILE" ]]; then
   exit 1
 fi
 source "$CONFIG_FILE"
+if [[ -z "${INTEGRITY_BASELINE:-}" ]]; then
+  if [[ "$EUID" -eq 0 ]]; then
+    INTEGRITY_BASELINE="/var/lib/securewatch/state/integrity-baseline.json"
+  else
+    INTEGRITY_BASELINE="$STATE_DIR/integrity-baseline.json"
+  fi
+fi
+export INTEGRITY_BASELINE
 
 mkdir -p "$LOG_DIR" "$REPORT_DIR" "$STATE_DIR"
 

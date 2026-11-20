@@ -4,7 +4,8 @@ SecureWatch is a modular Linux security monitoring toolkit. It runs local checks
 
 ## Features
 
-- Bash checks for accounts, listening ports, firewall state, package updates, AIDE, and rkhunter.
+- Local checks for privileged accounts, SSH authentication settings, listening ports, firewall state, package updates, AIDE, and rkhunter.
+- A built-in file-integrity baseline that hashes critical configuration files and checks their content, ownership, and permissions.
 - Scan failures and malformed check output are recorded in reports and called out in the terminal, so incomplete coverage is visible.
 - SSH and sudo anomaly parsing with structured JSON events.
 - HTML reports and a FastAPI service that stores reports and events in SQLite.
@@ -79,16 +80,34 @@ make exporter
 
 The source CLI supports `scan`, `report`, `--help`, and `--version`. `report` renders the latest scan as HTML; pass `--input PATH` or `--output PATH` to select files explicitly. Source runs store private reports under the repository's `data/` directory. The web dashboard remains optional and can still be run with Docker Compose.
 
+Run `securewatch doctor` before a scan to check the Python version, required commands, package-manager commands on `PATH`, optional audit tools, and whether the command has root visibility. It is read-only and does not install packages or contact repositories. Missing optional tools are reported as unavailable checks; the command exits nonzero when Python or a required runtime command is missing. Add `--json` for automation.
+
+The account check treats the expected `root` account as normal and flags additional accounts assigned UID 0. Malformed or unreadable account data is reported as incomplete instead of being treated as a clean result.
+
+When OpenSSH server is installed, scans inspect its effective configuration with `sshd -T -C` for four representative connection contexts: root and a regular account (`nobody`), each from loopback and a reserved external IPv4 address. The audit reads the configured listener ports and checks up to four of them, so `Match LocalPort` rules on nonstandard ports are included. If more than four ports are configured, the report marks the port audit incomplete. This check is read-only and does not open a network connection or modify SSH configuration. The samples do not exhaust every username, source or destination address, IPv6 route, or hostname that may match your rules; review context-specific rules for your environment. Findings identify the sample context and port. Missing OpenSSH is reported as an unavailable optional check.
+
+## File integrity baseline
+
+Initialize the built-in baseline once before relying on file-integrity findings. Use `--strict` when automation should fail on drift or incomplete verification:
+
+```bash
+sudo securewatch integrity init
+sudo securewatch scan
+sudo securewatch integrity verify --strict
+```
+
+The default baseline tracks existing files among `/etc/passwd`, `/etc/group`, `/etc/shadow`, `/etc/gshadow`, `/etc/sudoers`, and `/etc/ssh/sshd_config`. To track a custom set instead, pass one or more `--path` options, for example `securewatch integrity init --path /etc/securewatch/securewatch.conf --path /etc/ssh/sshd_config`. An existing baseline is never replaced unless `--force` is supplied; use that only after reviewing the current changes. Scans report a missing baseline as incomplete instead of claiming file integrity is clean. Baselines are stored with owner-only permissions and contain hashes and metadata, not file contents. The baseline is local state and a privileged attacker can replace it, so keep a protected off-host copy if you need tamper evidence against root-level compromise.
+
 ## Installable packages
 
-SecureWatch packages provide the local audit CLI and optional systemd timer; they do not install or start the web dashboard. Debian-family packages are built with `dpkg-deb`, and Fedora packages with `rpmbuild`:
+SecureWatch packages provide the local audit CLI and optional systemd timer; they do not install or start the web dashboard. Debian-family packages are built with `dpkg-deb`; RPM packages are built with `rpmbuild` and tested on Fedora and openSUSE Tumbleweed:
 
 ```bash
 make package-deb VERSION=0.3.0 OUTPUT=dist
 make package-rpm VERSION=0.3.0 OUTPUT=dist
 ```
 
-For the stable `v0.3.0` release, install the downloaded asset with your system package manager: `sudo apt install ./securewatch_0.3.0_all.deb` on Debian-family systems, including Kali, or `sudo dnf install ./securewatch-0.3.0-1.noarch.rpm` on Fedora. The Debian package requires Python 3.11 or later. Run `sudo securewatch scan` for a complete host audit. Reports and scan data are stored with owner-only permissions under `/var/lib/securewatch`. The hourly timer is opt-in: enable it with `sudo systemctl enable --now securewatch.timer`. Package upgrades preserve `/etc/securewatch/securewatch.conf` and generated reports. Package removal also leaves generated reports and scan data in place.
+For the stable `v0.3.0` release, install the downloaded asset with your system package manager: `sudo apt install ./securewatch_0.3.0_all.deb` on Debian-family systems, including Kali, or `sudo dnf install ./securewatch-0.3.0-1.noarch.rpm` on Fedora. Development CI also installs and exercises the RPM on openSUSE Tumbleweed; the next package release will include its exact RPM install command. The Debian package requires Python 3.11 or later. Run `sudo securewatch scan` for a complete host audit. Reports and scan data are stored with owner-only permissions under `/var/lib/securewatch`. The hourly timer is opt-in: enable it with `sudo systemctl enable --now securewatch.timer`. Package upgrades preserve `/etc/securewatch/securewatch.conf` and generated reports. Package removal also leaves generated reports and scan data in place.
 
 The Debian package recommends AIDE, rkhunter, Nmap, and network utilities for optional checks. Fedora's package recommends the equivalent Fedora packages. Missing optional tools are reported in scan output.
 
@@ -123,7 +142,7 @@ make venv
 make test
 ```
 
-The unit tests use temporary logs, reports, and databases; they do not scan the development machine. CI also builds packages twice to check repeatability and install-tests the Debian package on Debian and Ubuntu and the RPM on Fedora, including a scan and HTML report in each environment.
+The unit tests use temporary logs, reports, and databases; they do not scan the development machine. CI builds packages twice to check repeatability and install-tests the Debian package on Debian, Ubuntu, and Kali and the RPM on Fedora and openSUSE Tumbleweed, including integrity-baseline setup, a scan, and an HTML report in each environment.
 
 To run the actual host scan manually, use `make run`; it reads system state and writes generated files under `data/`.
 
@@ -131,7 +150,7 @@ To run the actual host scan manually, use `make run`; it reads system state and 
 
 Release versions use semantic version tags. Use a suffix for pre-releases, for example `v0.2.0-alpha.1` or `v0.2.0-rc.1`; use `v0.2.0` for a stable release.
 
-Pushing a `v*` tag runs the release workflow. The tag must match `VERSION`; the workflow rebuilds and install-tests both packages, generates checksums, and creates a GitHub draft with install instructions and release notes. Tags containing a suffix are marked as pre-releases; a tag such as `v0.3.0` creates a stable release draft. Review the draft and publish it from the GitHub Releases page.
+Pushing a `v*` tag runs the release workflow. The tag must match `VERSION`; the workflow rebuilds and install-tests the Debian package and tests the RPM on Fedora and openSUSE Tumbleweed, generates checksums, and creates a GitHub draft with version-correct install instructions and release notes. Tags containing a suffix are marked as pre-releases; a tag such as `v0.3.0` creates a stable release draft. Review the draft and publish it from the GitHub Releases page.
 
 ## Project layout
 
@@ -141,6 +160,7 @@ Pushing a `v*` tag runs the release workflow. The tag must match `VERSION`; the 
 - `packaging/` — Debian/RPM build definitions and installed-package smoke checks.
 - `modules/` — individual Linux checks.
 - `python/log_parser.py` — parses authentication logs.
+- `python/doctor.py` — checks host readiness and available audit checks.
 - `python/report_generator.py` — creates the HTML report.
 - `python/exporters/securewatch_exporter.py` — publishes Prometheus metrics.
 - `webapi/` — FastAPI service, SQLite helpers, and report ingestion.
@@ -151,4 +171,4 @@ Pushing a `v*` tag runs the release workflow. The tag must match `VERSION`; the 
 
 ## Security notes
 
-The Compose stack binds its host ports to loopback. Both API implementations require `WEBAPI_API_KEY` for data routes and refuse to start unless it is 64 lowercase hexadecimal characters. The setup command creates the key in an owner-only `.env`, and the file is ignored by Git. The dashboard proxy adds the key server-side so it is not shipped to the browser. Both APIs and the metrics exporter share a report reader that rejects symlinks, caps reports at 10 MiB and 100,000 events by default, and validates event fields; the primary API commits each report atomically, and the exporter maps unknown categories to `other` to limit metric cardinality. Set `WEBAPI_MAX_REPORT_BYTES` to a positive byte count if your generated reports need a different byte limit. The alternate `backend/` service does not enable CORS unless you set a specific comma-separated `SECUREWATCH_CORS_ORIGINS` allowlist. Reports can contain usernames, IP addresses, and other host details. For remote access, put the dashboard behind a TLS-enabled, authenticated reverse proxy and keep the API and monitoring ports private. Review checks and thresholds for your systems before relying on the results.
+The Compose stack binds its host ports to loopback. Both API implementations require `WEBAPI_API_KEY` for data routes and refuse to start unless it is 64 lowercase hexadecimal characters. The setup command creates the key in an owner-only `.env`, and the file is ignored by Git. The dashboard proxy adds the key server-side so it is not shipped to the browser. Both APIs and the metrics exporter share a report reader that rejects symlinks, caps reports at 10 MiB and 100,000 events by default, and validates event fields; the primary API commits each report atomically, and the exporter maps unknown categories to `other` to limit metric cardinality. Set `WEBAPI_MAX_REPORT_BYTES` to a positive byte count if your generated reports need a different byte limit. The alternate `backend/` service does not enable CORS unless you set a specific comma-separated `SECUREWATCH_CORS_ORIGINS` allowlist. Reports can contain usernames, IP addresses, and other host details. File-integrity baselines are owner-only but remain writable by the same privileged account that runs SecureWatch; retain a protected external copy for tamper evidence against root-level compromise. For remote access, put the dashboard behind a TLS-enabled, authenticated reverse proxy and keep the API and monitoring ports private. Review checks and thresholds for your systems before relying on the results.

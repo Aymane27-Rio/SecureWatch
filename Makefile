@@ -4,7 +4,7 @@ VENV := .venv
 PIP := $(VENV)/bin/pip
 PYTHON := $(VENV)/bin/python
 
-.PHONY: help install-deps venv cli run report exporter test package-deb package-rpm enable-systemd clean
+.PHONY: help install-deps venv cli run report doctor exporter test package-deb package-rpm enable-systemd clean
 
 help:
 	@echo "Targets:"
@@ -13,6 +13,7 @@ help:
 	@echo "  cli            - Show SecureWatch command help"
 	@echo "  run            - Run SecureWatch one-off scan"
 	@echo "  report         - Render the latest scan as HTML"
+	@echo "  doctor         - Check host readiness and available audit checks"
 	@echo "  exporter       - Run Prometheus exporter on :9109"
 	@echo "  test           - Run the deterministic unit test suite"
 	@echo "  package-deb    - Build a Debian package (VERSION=... OUTPUT=dist)"
@@ -36,6 +37,9 @@ run:
 
 report:
 	python3 bin/securewatch report
+
+doctor:
+	python3 bin/securewatch doctor
 
 exporter:
 	$(PYTHON) python/exporters/securewatch_exporter.py

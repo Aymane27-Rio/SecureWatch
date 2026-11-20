@@ -44,6 +44,33 @@ def configured_directories(root, env):
     return tuple(path if path.is_absolute() else root / path for path in directories)
 
 
+def configured_integrity_baseline(root, env):
+    config = env.get("SECUREWATCH_CONFIG", str(root / "config/securewatch.conf"))
+    script = (
+        'cd -- "$1"; source "$2"; '
+        'printf "%s\\0%s\\0" "${INTEGRITY_BASELINE:-}" "$STATE_DIR"'
+    )
+    result = subprocess.run(
+        ["bash", "-c", script, "securewatch", str(root), config],
+        check=False,
+        capture_output=True,
+        cwd=root,
+        env=env,
+    )
+    if result.returncode != 0:
+        message = result.stderr.decode("utf-8", errors="replace").strip()
+        raise RuntimeError(message or "could not load SecureWatch configuration")
+    baseline_value, state_dir, *_ = result.stdout.decode("utf-8").split("\0")
+    if not baseline_value:
+        if os.geteuid() == 0:
+            baseline_value = "/var/lib/securewatch/state/integrity-baseline.json"
+        else:
+            baseline_value = str(Path(state_dir) / "integrity-baseline.json")
+    value = baseline_value
+    path = Path(value).expanduser()
+    return path if path.is_absolute() else root / path
+
+
 def latest_events(log_dir):
     candidates = list(log_dir.glob("events_*.json"))
     if not candidates:
@@ -66,6 +93,35 @@ def make_parser(version):
     )
     report_parser.add_argument("--input", type=Path, help="JSON event report to render")
     report_parser.add_argument("--output", type=Path, help="HTML output path")
+    integrity_parser = subparsers.add_parser(
+        "integrity", help="initialize or verify a private file integrity baseline"
+    )
+    integrity_commands = integrity_parser.add_subparsers(
+        dest="integrity_command", required=True
+    )
+    initialize_parser = integrity_commands.add_parser(
+        "init", help="create a baseline for critical configuration files"
+    )
+    initialize_parser.add_argument(
+        "--path", action="append", help="file to track; repeat for multiple files"
+    )
+    initialize_parser.add_argument(
+        "--force", action="store_true", help="replace an existing baseline"
+    )
+    verify_parser = integrity_commands.add_parser(
+        "verify", help="compare tracked files with the saved baseline"
+    )
+    verify_parser.add_argument(
+        "--strict",
+        action="store_true",
+        help="exit nonzero when verification is incomplete or finds changes",
+    )
+    doctor_parser = subparsers.add_parser(
+        "doctor", help="check host readiness and available audit checks"
+    )
+    doctor_parser.add_argument(
+        "--json", action="store_true", help="print machine-readable JSON"
+    )
     return parser
 
 
@@ -84,13 +140,24 @@ def main(argv=None):
         parser.print_help()
         return 0
 
-    if root.resolve() == INSTALLED_ROOT and os.geteuid() != 0:
+    if (
+        root.resolve() == INSTALLED_ROOT
+        and os.geteuid() != 0
+        and args.command in {"scan", "report", "integrity"}
+    ):
         print(
             "securewatch: installed scans use private system storage; run "
             "'sudo securewatch scan' or 'sudo securewatch report'",
             file=sys.stderr,
         )
         return 77
+
+    if args.command == "doctor":
+        command = [sys.executable, str(root / "python/doctor.py")]
+        if args.json:
+            command.append("--json")
+        result = subprocess.run(command, check=False, cwd=root, env=env)
+        return result.returncode
 
     if args.command == "scan":
         result = subprocess.run(
@@ -99,6 +166,37 @@ def main(argv=None):
             cwd=root,
             env=env,
         )
+        return result.returncode
+
+    if args.command == "integrity":
+        if args.integrity_command == "init" and not args.path and os.geteuid() != 0:
+            print(
+                "securewatch: run 'sudo securewatch integrity init' to include "
+                "root-only system files, or pass --path for selected readable files",
+                file=sys.stderr,
+            )
+            return 77
+        try:
+            baseline = configured_integrity_baseline(root, env)
+        except (OSError, RuntimeError) as error:
+            print(f"securewatch: {error}", file=sys.stderr)
+            return 1
+
+        command = [
+            sys.executable,
+            str(root / "python/file_integrity.py"),
+            "init" if args.integrity_command == "init" else "verify",
+            "--baseline",
+            str(baseline),
+        ]
+        if args.integrity_command == "init":
+            for path in args.path or []:
+                command.extend(["--path", path])
+            if args.force:
+                command.append("--force")
+        elif args.strict:
+            command.append("--strict")
+        result = subprocess.run(command, check=False, cwd=root, env=env)
         return result.returncode
 
     try:
