@@ -381,7 +381,7 @@ class HostPortabilityTests(unittest.TestCase):
                     self.assertIn("AIDE is unavailable", result.stdout)
                 elif manager == "pacman":
                     self.assertIn("pacman-contrib", package_commands)
-                    self.assertNotIn("fakeroot", package_commands)
+                    self.assertIn("fakeroot", package_commands)
 
     def test_arch_installer_fails_if_required_update_helper_cannot_be_installed(self):
         with tempfile.TemporaryDirectory() as temp:

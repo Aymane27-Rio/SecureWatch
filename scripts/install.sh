@@ -158,8 +158,9 @@ case "$package_manager" in
       python3 python3-pip
     ;;
   pacman)
+    # pacman-contrib's checkupdates requires fakeroot despite listing it as optional.
     install_packages gawk jq curl lsof net-tools inotify-tools util-linux inetutils \
-      python python-pip pacman-contrib
+      python python-pip pacman-contrib fakeroot
     ;;
   apk)
     install_packages bash coreutils gawk jq curl lsof net-tools inotify-tools \
