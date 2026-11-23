@@ -42,7 +42,10 @@ class SecureWatchCliTests(unittest.TestCase):
         self.assertIn("integrity", help_result.stdout)
         self.assertIn("doctor", help_result.stdout)
         self.assertEqual(version_result.returncode, 0, version_result.stderr)
-        self.assertEqual(version_result.stdout.strip(), "securewatch 0.3.0")
+        expected_version = (ROOT / "VERSION").read_text(encoding="utf-8").strip()
+        self.assertEqual(
+            version_result.stdout.strip(), f"securewatch {expected_version}"
+        )
 
     def test_scan_dispatches_to_the_existing_orchestrator(self):
         with patch.object(

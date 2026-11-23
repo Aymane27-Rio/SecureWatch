@@ -2,6 +2,12 @@
 
 This @RELEASE_CHANNEL@ makes SecureWatch available as a native Linux package for Debian-family systems, Fedora, and openSUSE Tumbleweed. The installable package provides the local audit CLI; the Docker Compose dashboard remains optional.
 
+### Highlights
+
+- Cross-distro host checks now cover Alpine, Arch, Debian-family systems, Fedora, and openSUSE Tumbleweed.
+- A read-only host preflight and built-in file-integrity baseline help check readiness and detect changes to critical configuration files.
+- The dashboard includes scan history, event filters, and expandable event details.
+
 ### Install
 
 - Debian, Ubuntu, or Kali: `sudo apt install ./securewatch_@VERSION@_all.deb`
