@@ -1,4 +1,5 @@
 import React, {useEffect, useMemo, useState} from 'react'
+import {csvFilename, eventsToCsv} from './csv.js'
 
 const PAGE_SIZE = 25
 const SEVERITIES = [
@@ -211,6 +212,20 @@ function App() {
     setPage(1)
   }
 
+  function downloadFilteredEvents() {
+    const csv = eventsToCsv(filteredEvents)
+    const blob = new Blob(['\uFEFF', csv], {type: 'text/csv;charset=utf-8'})
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = csvFilename(activeReport.id)
+    link.hidden = true
+    document.body.append(link)
+    link.click()
+    link.remove()
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000)
+  }
+
   return (
     <div className="app-shell">
       <aside className="side-rail" aria-label="Main navigation">
@@ -334,14 +349,26 @@ function App() {
                 <h2 id="events-title">Event explorer</h2>
               </div>
               {activeReport && (
-                <a
-                  className="json-link"
-                  href={`/api/reports/${encodeURIComponent(activeReport.id)}`}
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  View JSON <span aria-hidden="true">↗</span>
-                </a>
+                <div className="event-actions">
+                  <button
+                    className="export-button"
+                    type="button"
+                    onClick={downloadFilteredEvents}
+                    disabled={eventsLoading || Boolean(eventsError)}
+                    aria-label={`Export ${filteredEvents.length} matching events as CSV`}
+                  >
+                    <span aria-hidden="true">↓</span>
+                    Export CSV <span className="export-count">{filteredEvents.length}</span>
+                  </button>
+                  <a
+                    className="json-link"
+                    href={`/api/reports/${encodeURIComponent(activeReport.id)}`}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    View JSON <span aria-hidden="true">↗</span>
+                  </a>
+                </div>
               )}
             </div>
 
