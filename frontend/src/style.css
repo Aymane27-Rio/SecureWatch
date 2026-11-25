@@ -306,6 +306,18 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .detail-meta { display: flex; flex-wrap: wrap; gap: 8px 23px; padding-bottom: 13px; }
 .detail-meta span { display: flex; flex-direction: column; gap: 4px; color: #acbac4; font-family: 'DM Mono', ui-monospace, monospace; font-size: 10px; overflow-wrap: anywhere; }
 .detail-meta strong { color: #718390; font-family: 'DM Sans', sans-serif; font-size: 9px; font-weight: 500; }
+.remediation-card { margin: 0 0 13px; padding: 12px; border: 1px solid rgba(97, 219, 193, 0.23); border-radius: 6px; background: rgba(97, 219, 193, 0.035); }
+.remediation-heading { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 9px; }
+.remediation-heading h3 { margin: 5px 0 0; color: #d9eee9; font-size: 12px; font-weight: 600; }
+.remediation-persona { display: inline-flex; align-items: center; gap: 7px; color: #8496a2; font-size: 9px; }
+.remediation-persona select { max-width: 145px; padding: 5px 7px; border: 1px solid #30434f; border-radius: 5px; color: #c4d3db; background: #111c26; font-size: 10px; }
+.remediation-explanation, .remediation-advice { margin: 10px 0 0; color: #aab9c2; font-size: 10px; line-height: 1.55; }
+.remediation-values { display: flex; flex-wrap: wrap; gap: 7px 18px; margin-top: 10px; }
+.remediation-values span { display: flex; flex-direction: column; gap: 4px; color: #d3dfdf; font-family: 'DM Mono', ui-monospace, monospace; font-size: 10px; }
+.remediation-values strong { color: #70838f; font-family: 'DM Sans', sans-serif; font-size: 9px; font-weight: 500; }
+.remediation-values code, .remediation-context code { color: #b8e9df; font-family: 'DM Mono', ui-monospace, monospace; }
+.remediation-context { margin: 8px 0 0; color: #81939e; font-size: 9px; }
+.remediation-note { margin: 10px 0 0; padding-top: 8px; border-top: 1px solid rgba(97, 219, 193, 0.12); color: #71838d; font-size: 9px; line-height: 1.45; }
 .detail-data-heading { padding-top: 11px; border-top: 1px solid var(--line-soft); font-size: 8px; }
 .event-data { max-height: 250px; overflow: auto; margin: 9px 0 0; padding: 12px; border: 1px solid #1e2c37; border-radius: 5px; color: #a9c7c6; background: #091119; font-family: 'DM Mono', ui-monospace, monospace; font-size: 10px; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; }
 
@@ -400,6 +412,8 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
   .pagination { align-self: flex-end; }
   .details-row td { padding-right: 10px; padding-left: 10px; }
   .event-details { padding: 10px; }
+  .remediation-card { padding: 10px; }
+  .remediation-persona { align-items: flex-start; flex-direction: column; }
   .app-footer { align-items: flex-start; flex-direction: column; gap: 8px; padding-top: 16px; }
 }
 
