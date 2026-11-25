@@ -1,0 +1,45 @@
+name: General feedback
+description: Share feedback about using or evaluating SecureWatch.
+title: "[Feedback]: "
+labels:
+  - question
+body:
+  - type: markdown
+    attributes:
+      value: |
+        We welcome feedback from people trying SecureWatch. Please keep examples brief and redact hostnames, usernames, IP addresses, and other private details.
+  - type: dropdown
+    id: area
+    attributes:
+      label: What is your feedback about?
+      options:
+        - Installation or packaging
+        - Auditing and findings
+        - Remediation guidance
+        - Dashboard or reports
+        - Documentation
+        - Deployment or compatibility
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: experience
+    attributes:
+      label: What were you trying to do, and how did it go?
+      description: Tell us what worked, what was confusing, or what you expected.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: SecureWatch version (optional)
+      description: Run `securewatch --version` if available.
+    validations:
+      required: false
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: Privacy check
+      options:
+        - label: I removed secrets and unnecessary host-specific details from this feedback.
+          required: true
