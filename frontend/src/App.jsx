@@ -1,5 +1,6 @@
 import React, {useEffect, useMemo, useState} from 'react'
 import {csvFilename, eventsToCsv} from './csv.js'
+import {getRemediation, REMEDIATION_PERSONAS} from './remediation.js'
 
 const PAGE_SIZE = 25
 const SEVERITIES = [
@@ -124,6 +125,7 @@ function App() {
   const [search, setSearch] = useState('')
   const [page, setPage] = useState(1)
   const [expandedEvent, setExpandedEvent] = useState(null)
+  const [remediationPersona, setRemediationPersona] = useState('standard')
 
   useEffect(() => {
     const controller = new AbortController()
@@ -464,6 +466,9 @@ function App() {
                     <tbody>
                       {visibleEvents.map((event) => {
                         const expanded = expandedEvent === event._index
+                        const remediation = expanded
+                          ? getRemediation(event, remediationPersona)
+                          : null
                         return (
                           <React.Fragment key={`${selectedReportId}-${event._index}`}>
                             <tr className={`event-row${expanded ? ' event-row-expanded' : ''}`}>
@@ -507,6 +512,44 @@ function App() {
                                       <span><strong>Recorded</strong>{formatDate(event.ts)}</span>
                                       <span><strong>Severity</strong>{severityName(event.severity)} ({event.severity})</span>
                                     </div>
+                                    {remediation && (
+                                      <section className="remediation-card" aria-label="Remediation guidance">
+                                        <div className="remediation-heading">
+                                          <div>
+                                            <div className="section-kicker">ADVISORY NEXT STEP</div>
+                                            <h3>{remediation.title}</h3>
+                                          </div>
+                                          <label className="remediation-persona">
+                                            <span>Guidance for</span>
+                                            <select
+                                              value={remediationPersona}
+                                              onChange={(change) => setRemediationPersona(change.target.value)}
+                                            >
+                                              {REMEDIATION_PERSONAS.map((persona) => (
+                                                <option value={persona.value} key={persona.value}>
+                                                  {persona.label}
+                                                </option>
+                                              ))}
+                                            </select>
+                                          </label>
+                                        </div>
+                                        <p className="remediation-explanation">{remediation.explanation}</p>
+                                        <div className="remediation-values">
+                                          <span><strong>Setting</strong><code>{remediation.setting}</code></span>
+                                          <span><strong>Observed</strong><code>{remediation.current}</code></span>
+                                          <span><strong>Suggested</strong><code>{remediation.recommended}</code></span>
+                                        </div>
+                                        {remediation.context && (
+                                          <p className="remediation-context">
+                                            Evaluated connection: <code>{remediation.context}</code>
+                                          </p>
+                                        )}
+                                        <p className="remediation-advice">{remediation.advice}</p>
+                                        <p className="remediation-note">
+                                          Guidance is advisory. SecureWatch will not change the host configuration.
+                                        </p>
+                                      </section>
+                                    )}
                                     <div className="detail-data-heading">EVENT DATA</div>
                                     <pre className="event-data">{JSON.stringify(event._data, null, 2)}</pre>
                                   </div>
