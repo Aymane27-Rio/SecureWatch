@@ -150,6 +150,10 @@ The unit tests use temporary logs, reports, and databases; they do not scan the 
 
 To run the actual host scan manually, use `make run`; it reads system state and writes generated files under `data/`.
 
+## Feedback and bug reports
+
+Use the [GitHub Issues page](https://github.com/Aymane27-Rio/SecureWatch/issues/new/choose) and choose Bug report, Feature request, or General feedback. Include the SecureWatch version, Linux distribution, and installation method when relevant. Reports can contain hostnames, usernames, IP addresses, or configuration details, so share only short, redacted excerpts rather than full scan reports or credentials.
+
 ## Releases
 
 Release versions use semantic version tags. Use a suffix for pre-releases, for example `v0.2.0-alpha.1` or `v0.2.0-rc.1`; use `v0.2.0` for a stable release.

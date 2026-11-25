@@ -1,0 +1,76 @@
+name: Bug report
+description: Report a reproducible problem with SecureWatch.
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Share enough detail to reproduce the problem. Do not attach full reports or logs; they can contain hostnames, usernames, IP addresses, and configuration details.
+  - type: input
+    id: version
+    attributes:
+      label: SecureWatch version
+      description: Run `securewatch --version`, or provide the release tag or commit.
+      placeholder: 0.4.0
+    validations:
+      required: true
+  - type: dropdown
+    id: distribution
+    attributes:
+      label: Linux distribution
+      options:
+        - Kali Linux
+        - Debian
+        - Ubuntu
+        - Fedora
+        - openSUSE Tumbleweed
+        - Arch Linux
+        - Alpine Linux
+        - Other Linux distribution
+    validations:
+      required: true
+  - type: dropdown
+    id: install-method
+    attributes:
+      label: Installation method
+      options:
+        - Debian package (.deb)
+        - RPM package (.rpm)
+        - Source install
+        - Docker Compose
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: List the commands or actions that trigger the problem. Redact host-specific values.
+      placeholder: |
+        1. Run ...
+        2. Select ...
+        3. Observe ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: Include a short, redacted error excerpt if useful. Do not attach full reports, API keys, or configuration files.
+    validations:
+      required: true
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: Privacy check
+      options:
+        - label: I removed secrets and unnecessary host-specific details from this issue.
+          required: true
