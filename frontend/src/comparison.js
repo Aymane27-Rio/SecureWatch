@@ -6,15 +6,17 @@ const VOLATILE_DATA_KEYS = new Set([
   'ts',
   'updated_at',
 ])
+const RK_HUNTER_VOLATILE_DATA_KEYS = new Set([...VOLATILE_DATA_KEYS, 'warnings'])
+const INTEGRITY_VOLATILE_DATA_KEYS = new Set([...VOLATILE_DATA_KEYS, 'changes'])
 
-function stableData(value) {
-  if (Array.isArray(value)) return value.map(stableData)
+function stableData(value, ignoredKeys = VOLATILE_DATA_KEYS) {
+  if (Array.isArray(value)) return value.map((item) => stableData(item, ignoredKeys))
   if (value && typeof value === 'object') {
     return Object.fromEntries(
       Object.keys(value)
-        .filter((key) => !VOLATILE_DATA_KEYS.has(key.toLowerCase()))
+        .filter((key) => !ignoredKeys.has(key.toLowerCase()))
         .sort((a, b) => a.localeCompare(b))
-        .map((key) => [key, stableData(value[key])]),
+        .map((key) => [key, stableData(value[key], ignoredKeys)]),
     )
   }
   return value
@@ -32,20 +34,41 @@ function eventData(event) {
   return data
 }
 
-function stableSummary(event) {
+function stableSummary(event, data) {
   const summary = String(event.summary || '')
-  if (event.category !== 'auth') return summary
+  if (event.category === 'auth') {
+    return summary
+      .replace(/^(SSH failed logins from .+): \d+$/, '$1')
+      .replace(/^(Sudo authentication failures): \d+$/, '$1')
+  }
+  if (event.category === 'packages' && typeof data?.manager === 'string') {
+    return summary.replace(/^Upgradable packages: \d+$/, 'Upgradable packages')
+  }
+  if (event.category === 'malware') {
+    return summary.replace(/^rkhunter warnings: \d+$/, 'rkhunter warnings')
+  }
   return summary
-    .replace(/^(SSH failed logins from .+): \d+$/, '$1')
-    .replace(/^(Sudo authentication failures): \d+$/, '$1')
+}
+
+function ignoredDataKeys(event, summary, data) {
+  if (event.category === 'malware' && summary === 'rkhunter warnings') {
+    return RK_HUNTER_VOLATILE_DATA_KEYS
+  }
+  if (event.category === 'integrity' && summary === 'Tracked file changed since baseline'
+    && typeof data?.path === 'string' && data.path.length > 0) {
+    return INTEGRITY_VOLATILE_DATA_KEYS
+  }
+  return VOLATILE_DATA_KEYS
 }
 
 function findingKey(event) {
+  const data = eventData(event)
+  const summary = stableSummary(event, data)
   return JSON.stringify([
     String(event.category || 'uncategorized'),
     String(event.host || ''),
-    stableSummary(event),
-    stableData(eventData(event)),
+    summary,
+    stableData(data, ignoredDataKeys(event, summary, data)),
   ])
 }
 
