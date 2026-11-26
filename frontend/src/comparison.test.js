@@ -59,6 +59,48 @@ test('ignores object key order and volatile event counts in finding identity', (
   assert.equal(result.counts.resolved, 0)
 })
 
+test('package counts change without hiding a different package manager', () => {
+  const previous = [
+    {...finding('Upgradable packages: 3', 1, {count: 3, manager: 'apt'}), category: 'packages'},
+  ]
+  const current = [
+    {...finding('Upgradable packages: 8', 1, {count: 8, manager: 'apt'}), category: 'packages'},
+    {...finding('Upgradable packages: 2', 1, {count: 2, manager: 'dnf'}), category: 'packages'},
+  ]
+
+  const result = compareReports(current, previous)
+  assert.deepEqual(result.events.map((event) => event._change), ['persistent', 'new'])
+  assert.equal(result.counts.resolved, 0)
+})
+
+test('rkhunter warning counts remain persistent and zero warnings resolve', () => {
+  const warning = (count, severity) => ({
+    ...finding(`rkhunter warnings: ${count}`, severity, {warnings: count}),
+    category: 'malware',
+  })
+
+  const recurring = compareReports([warning(2, 2)], [warning(5, 2)])
+  assert.equal(recurring.events[0]._change, 'persistent')
+
+  const cleared = compareReports([warning(0, 0)], [warning(5, 2)])
+  assert.equal(cleared.counts.resolved, 1)
+  assert.equal(cleared.counts.new, 0)
+})
+
+test('file changes on the same path stay persistent as changed attributes vary', () => {
+  const changedFile = (path, changes) => ({
+    ...finding('Tracked file changed since baseline', 3, {path, changes}),
+    category: 'integrity',
+  })
+  const result = compareReports(
+    [changedFile('/etc/passwd', ['mode']), changedFile('/etc/group', ['owner'])],
+    [changedFile('/etc/passwd', ['content'])],
+  )
+
+  assert.deepEqual(result.events.map((event) => event._change), ['persistent', 'new'])
+  assert.equal(result.counts.resolved, 0)
+})
+
 test('does not count informational events as findings', () => {
   const result = compareReports(
     [{...finding('Current healthy status', 0)}],

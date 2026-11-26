@@ -102,7 +102,7 @@ The default baseline tracks existing files among `/etc/passwd`, `/etc/group`, `/
 
 Expand a supported SSH setting finding in the dashboard to see its observed value, suggested value, and evaluated connection context. Listening-port findings include advisory investigation steps based on the reported protocol and port; a local listener does not by itself show that a service is reachable remotely. Choose Standard user, Developer, or Pentester to tailor next steps. SecureWatch does not apply these changes; review access requirements and validate a proposed change before deploying it.
 
-The dashboard compares each selected report with the next older scan, labeling new and persistent findings and listing resolved findings. Informational events are excluded; changes in severity are counted separately, while observed counts and timestamps do not make an otherwise matching finding appear new.
+The dashboard compares each selected report with the next older scan, labeling new and persistent findings and listing resolved findings. Informational events are excluded and changes in severity are counted separately. Changing counts in SSH/sudo authentication, package update, and rkhunter findings do not make a recurring finding appear new. Changes to the same tracked file remain persistent when the changed attributes vary; other event evidence continues to distinguish findings.
 
 ## Installable packages
 
