@@ -9,7 +9,7 @@ SecureWatch is a modular Linux security monitoring toolkit. It runs local checks
 - Scan failures and malformed check output are recorded in reports and called out in the terminal, so incomplete coverage is visible.
 - SSH and sudo anomaly parsing with structured JSON events.
 - HTML reports and a FastAPI service that stores reports and events in SQLite.
-- React dashboard for scan history, scan-to-scan finding comparison, severity/category filtering, event details, filtered CSV export, and advisory persona-aware guidance for SSH findings, plus a Prometheus exporter and starter Grafana dashboard.
+- React dashboard for scan history, scan-to-scan finding comparison, severity/category filtering, event details, filtered CSV export, and advisory persona-aware guidance for SSH and listening-port findings, plus a Prometheus exporter and starter Grafana dashboard.
 - Optional AWS security group audit module.
 
 ## Run with Docker Compose
@@ -98,9 +98,9 @@ sudo securewatch integrity verify --strict
 
 The default baseline tracks existing files among `/etc/passwd`, `/etc/group`, `/etc/shadow`, `/etc/gshadow`, `/etc/sudoers`, and `/etc/ssh/sshd_config`. To track a custom set instead, pass one or more `--path` options, for example `securewatch integrity init --path /etc/securewatch/securewatch.conf --path /etc/ssh/sshd_config`. An existing baseline is never replaced unless `--force` is supplied; use that only after reviewing the current changes. Scans report a missing baseline as incomplete instead of claiming file integrity is clean. Baselines are stored with owner-only permissions and contain hashes and metadata, not file contents. The baseline is local state and a privileged attacker can replace it, so keep a protected off-host copy if you need tamper evidence against root-level compromise.
 
-## SSH finding guidance
+## Finding guidance
 
-Expand a supported SSH setting finding in the dashboard to see its observed value, suggested value, and evaluated connection context. Choose Standard user, Developer, or Pentester to tailor the advisory next steps. SecureWatch does not apply these changes; review access requirements and validate a proposed SSH change before deploying it.
+Expand a supported SSH setting finding in the dashboard to see its observed value, suggested value, and evaluated connection context. Listening-port findings include advisory investigation steps based on the reported protocol and port; a local listener does not by itself show that a service is reachable remotely. Choose Standard user, Developer, or Pentester to tailor next steps. SecureWatch does not apply these changes; review access requirements and validate a proposed change before deploying it.
 
 The dashboard compares each selected report with the next older scan, labeling new and persistent findings and listing resolved findings. Informational events are excluded; changes in severity are counted separately, while observed counts and timestamps do not make an otherwise matching finding appear new.
 
