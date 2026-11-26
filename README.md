@@ -9,7 +9,7 @@ SecureWatch is a modular Linux security monitoring toolkit. It runs local checks
 - Scan failures and malformed check output are recorded in reports and called out in the terminal, so incomplete coverage is visible.
 - SSH and sudo anomaly parsing with structured JSON events.
 - HTML reports and a FastAPI service that stores reports and events in SQLite.
-- React dashboard for scan history, severity/category filtering, event details, filtered CSV export, and advisory persona-aware guidance for SSH findings, plus a Prometheus exporter and starter Grafana dashboard.
+- React dashboard for scan history, scan-to-scan finding comparison, severity/category filtering, event details, filtered CSV export, and advisory persona-aware guidance for SSH findings, plus a Prometheus exporter and starter Grafana dashboard.
 - Optional AWS security group audit module.
 
 ## Run with Docker Compose
@@ -101,6 +101,8 @@ The default baseline tracks existing files among `/etc/passwd`, `/etc/group`, `/
 ## SSH finding guidance
 
 Expand a supported SSH setting finding in the dashboard to see its observed value, suggested value, and evaluated connection context. Choose Standard user, Developer, or Pentester to tailor the advisory next steps. SecureWatch does not apply these changes; review access requirements and validate a proposed SSH change before deploying it.
+
+The dashboard compares each selected report with the next older scan, labeling new and persistent findings and listing resolved findings. Informational events are excluded; changes in severity are counted separately, while observed counts and timestamps do not make an otherwise matching finding appear new.
 
 ## Installable packages
 

@@ -1,4 +1,5 @@
 import React, {useEffect, useMemo, useState} from 'react'
+import {compareReports} from './comparison.js'
 import {csvFilename, eventsToCsv} from './csv.js'
 import {getRemediation, REMEDIATION_PERSONAS} from './remediation.js'
 
@@ -116,6 +117,7 @@ function App() {
   const [reports, setReports] = useState([])
   const [selectedReportId, setSelectedReportId] = useState('')
   const [events, setEvents] = useState([])
+  const [comparisonState, setComparisonState] = useState({reportId: '', events: [], loading: false, error: ''})
   const [reportsLoading, setReportsLoading] = useState(true)
   const [eventsLoading, setEventsLoading] = useState(false)
   const [reportsError, setReportsError] = useState('')
@@ -181,20 +183,72 @@ function App() {
   }, [selectedReportId])
 
   const activeReport = reports.find((report) => report.id === selectedReportId)
+  const activeReportIndex = reports.findIndex((report) => report.id === selectedReportId)
+  const previousReport = activeReportIndex >= 0 ? reports[activeReportIndex + 1] : null
+
+  useEffect(() => {
+    if (!previousReport) {
+      setComparisonState({reportId: '', events: [], loading: false, error: ''})
+      return undefined
+    }
+
+    const controller = new AbortController()
+    const reportId = previousReport.id
+    setComparisonState({reportId, events: [], loading: true, error: ''})
+
+    fetchJson(`/api/reports/${encodeURIComponent(reportId)}`, controller.signal)
+      .then((payload) => {
+        setComparisonState({
+          reportId,
+          events: normalizeEvents(payload),
+          loading: false,
+          error: '',
+        })
+      })
+      .catch((error) => {
+        if (error.name !== 'AbortError') {
+          setComparisonState({
+            reportId,
+            events: [],
+            loading: false,
+            error: 'Unable to load the previous scan for comparison.',
+          })
+        }
+      })
+
+    return () => controller.abort()
+  }, [previousReport?.id])
+
+  const comparisonLoading = Boolean(
+    previousReport && (
+      comparisonState.reportId !== previousReport.id || comparisonState.loading
+    ),
+  )
+  const comparisonError = comparisonState.reportId === previousReport?.id
+    ? comparisonState.error
+    : ''
+  const comparisonReady = Boolean(
+    previousReport && !comparisonLoading && !comparisonError && !eventsLoading && !eventsError,
+  )
+  const comparison = useMemo(
+    () => compareReports(events, comparisonState.events),
+    [events, comparisonState.events],
+  )
+  const comparisonEvents = comparisonReady ? comparison.events : events
   const categories = useMemo(
     () => [...new Set(events.map((event) => event.category))].sort((a, b) => a.localeCompare(b)),
     [events],
   )
   const filteredEvents = useMemo(() => {
     const query = search.trim().toLocaleLowerCase()
-    return events.filter((event) => {
+    return comparisonEvents.filter((event) => {
       if (severityFilter !== 'all' && event.severity !== Number(severityFilter)) return false
       if (categoryFilter !== 'all' && event.category !== categoryFilter) return false
       if (!query) return true
       return [event.summary, event.category, event.host, event.ts]
         .some((value) => String(value || '').toLocaleLowerCase().includes(query))
     })
-  }, [events, severityFilter, categoryFilter, search])
+  }, [comparisonEvents, severityFilter, categoryFilter, search])
   const pageCount = Math.max(1, Math.ceil(filteredEvents.length / PAGE_SIZE))
   const visibleEvents = filteredEvents.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
   const highSeverityCount = events.filter((event) => event.severity >= 3).length
@@ -420,6 +474,54 @@ function App() {
               )}
             </div>
 
+            <section className="comparison-panel" aria-label="Scan comparison">
+              {!previousReport ? (
+                <p className="comparison-message">
+                  {activeReport
+                    ? 'No earlier scan is available to compare with this report.'
+                    : 'Select a scan to compare it with the previous report.'}
+                </p>
+              ) : comparisonLoading ? (
+                <p className="comparison-message"><span className="spinner" /> Loading previous scan for comparison</p>
+              ) : eventsLoading ? (
+                <p className="comparison-message"><span className="spinner" /> Waiting for current scan events</p>
+              ) : comparisonError ? (
+                <p className="comparison-message comparison-error" role="status">
+                  {comparisonError} {eventsError
+                    ? 'The current scan events are also unavailable.'
+                    : 'Current scan events are still available.'}
+                </p>
+              ) : eventsError ? (
+                <p className="comparison-message comparison-error" role="status">Comparison is unavailable because the current scan events could not be loaded.</p>
+              ) : comparisonReady ? (
+                <>
+                  <div className="comparison-heading">
+                    <span>Changes since {formatDate(previousReport.timestamp)}</span>
+                    <span>Findings with severity above informational</span>
+                  </div>
+                  <div className="comparison-counts" aria-label="Finding changes">
+                    <div className="comparison-count comparison-count-new"><strong>{comparison.counts.new}</strong><span>New</span></div>
+                    <div className="comparison-count comparison-count-persistent"><strong>{comparison.counts.persistent}</strong><span>Persistent</span></div>
+                    <div className="comparison-count comparison-count-resolved"><strong>{comparison.counts.resolved}</strong><span>Resolved</span></div>
+                    <div className="comparison-count comparison-count-severity"><strong>{comparison.counts.severityChanged}</strong><span>Severity changed</span></div>
+                  </div>
+                  {comparison.resolvedEvents.length > 0 && (
+                    <details className="resolved-findings">
+                      <summary>View resolved findings</summary>
+                      <ul>
+                        {comparison.resolvedEvents.map((event, index) => (
+                          <li key={`${event.category}-${event.host}-${event.summary}-${index}`}>
+                            <span>{event.summary}</span>
+                            <span>{event.host || 'Host not reported'} · {severityName(event.severity)}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </details>
+                  )}
+                </>
+              ) : null}
+            </section>
+
             {eventsError && <div className="inline-error" role="alert">{eventsError}</div>}
 
             {eventsLoading ? (
@@ -487,6 +589,20 @@ function App() {
                                   onClick={() => setExpandedEvent(expanded ? null : event._index)}
                                 >
                                   {event.summary}
+                                  {comparisonReady && event._change && (
+                                    <span className={`comparison-badge comparison-badge-${event._change}`}>
+                                      {event._change === 'new' ? 'NEW' : 'PERSISTENT'}
+                                    </span>
+                                  )}
+                                  {comparisonReady && event._previousSeverity !== null && event._previousSeverity !== undefined && (
+                                    <span
+                                      className="severity-change-badge"
+                                      title={`Previous severity: ${severityName(event._previousSeverity)}`}
+                                      aria-label={`Severity changed from ${severityName(event._previousSeverity)} to ${severityName(event.severity)}`}
+                                    >
+                                      {event.severity > event._previousSeverity ? '↑' : '↓'} SEVERITY
+                                    </span>
+                                  )}
                                 </button>
                               </td>
                               <td className="host-column host-cell">{event.host || '—'}</td>
